@@ -1,8 +1,23 @@
 import json
 import time
+from datetime import datetime, timedelta, timezone
 import requests
 from config import GAMMA_API, MARKET_FETCH_LIMIT
 
+
+def _now_et() -> datetime:
+    """Current time in US Eastern. Uses EDT (UTC-4) Mar-Nov, EST (UTC-5) Nov-Mar.
+    Approximates DST: second Sunday of March to first Sunday of November."""
+    utc = datetime.now(timezone.utc)
+    year = utc.year
+    # Second Sunday of March
+    mar1 = datetime(year, 3, 1, tzinfo=timezone.utc)
+    dst_start = mar1 + timedelta(days=(6 - mar1.weekday()) % 7 + 7, hours=7)
+    # First Sunday of November
+    nov1 = datetime(year, 11, 1, tzinfo=timezone.utc)
+    dst_end = nov1 + timedelta(days=(6 - nov1.weekday()) % 7, hours=6)
+    offset = timedelta(hours=-4) if dst_start <= utc < dst_end else timedelta(hours=-5)
+    return utc + offset
 
 # Auto-generated financial event patterns on Polymarket.
 # Each tuple: (slug_prefix, interval_seconds, category_tag)
@@ -11,6 +26,12 @@ LIVE_FINANCE_PATTERNS = [
     ("btc-updown-15m", 900,  "Bitcoin"),
     ("eth-updown-5m",  300,  "Ethereum"),
     ("eth-updown-15m", 900,  "Ethereum"),
+]
+
+# Hourly patterns use date-based slugs in ET timezone
+# e.g. bitcoin-up-or-down-march-25-2026-10am-et
+LIVE_HOURLY_PATTERNS = [
+    ("bitcoin-up-or-down", "Bitcoin"),
 ]
 
 
@@ -141,18 +162,28 @@ def fetch_browse_markets(tag_id: int | None = None, limit: int = 10,
     ]
 
 
+def _hourly_slug(prefix: str, dt: datetime) -> str:
+    """Build an hourly event slug like bitcoin-up-or-down-march-25-2026-10am-et."""
+    month = dt.strftime("%B").lower()
+    day = dt.day
+    year = dt.year
+    hour = int(dt.strftime("%I"))  # 12-hour, no leading zero
+    ampm = dt.strftime("%p").lower()
+    return f"{prefix}-{month}-{day}-{year}-{hour}{ampm}-et"
+
+
 def fetch_live_finance_markets() -> list[dict]:
     """
-    Fetch auto-generated financial markets (BTC/ETH 5/15-min up/down).
-    These events rotate on fixed intervals with timestamp-based slugs.
+    Fetch auto-generated financial markets (BTC/ETH 5/15-min and hourly up/down).
+    These events rotate on fixed intervals with timestamp-based or date-based slugs.
     Tries the current and next window to catch active ones.
     Injects a category tag (e.g. "Bitcoin") so they group in the UI.
     """
     now = int(time.time())
     markets = []
 
+    # Timestamp-based patterns (5m, 15m)
     for prefix, interval, tag in LIVE_FINANCE_PATTERNS:
-        # Current window boundary and next
         current_boundary = now - (now % interval)
         candidates = [current_boundary, current_boundary + interval]
 
@@ -165,7 +196,27 @@ def fetch_live_finance_markets() -> list[dict]:
                         if tag not in m["tags"]:
                             m["tags"].append(tag)
                     markets.extend(event_markets)
-                    break  # Got markets for this pattern, move to next
+                    break
+            except Exception:
+                continue
+
+    # Hourly date-based patterns
+    now_et = _now_et()
+    for prefix, tag in LIVE_HOURLY_PATTERNS:
+        candidates = [
+            now_et.replace(minute=0, second=0, microsecond=0),
+            now_et.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1),
+        ]
+        for dt in candidates:
+            slug = _hourly_slug(prefix, dt)
+            try:
+                event_markets = fetch_markets_by_event_slug(slug)
+                if event_markets:
+                    for m in event_markets:
+                        if tag not in m["tags"]:
+                            m["tags"].append(tag)
+                    markets.extend(event_markets)
+                    break
             except Exception:
                 continue
 

@@ -519,8 +519,11 @@ async def handle_browse(request):
     sort = request.query.get("sort", "volume")
     limit = int(request.query.get("limit", "10"))
     try:
-        tag_id_int = int(tag_id) if tag_id else None
-        markets = gamma_module.fetch_browse_markets(tag_id=tag_id_int, limit=limit, sort=sort)
+        if tag_id == "live":
+            markets = gamma_module.fetch_live_finance_markets()
+        else:
+            tag_id_int = int(tag_id) if tag_id else None
+            markets = gamma_module.fetch_browse_markets(tag_id=tag_id_int, limit=limit, sort=sort)
         from mixer.mixer import AutonomousDJ
         result = []
         for m in markets:
@@ -902,7 +905,7 @@ async function browseTab(btn) {
   const cacheKey = tagId + ':' + sort;
   activeTab = cacheKey;
 
-  if (browseCache[cacheKey]) {
+  if (browseCache[cacheKey] && tagId !== 'live') {
     renderBrowse(browseCache[cacheKey]);
     return;
   }

@@ -37,6 +37,7 @@ PINNED_MARKET_SLUG = None        # e.g. "will-trump-veto-the-bill"
 # Polymarket tag_ids for the Browse tabs in the web UI
 BROWSE_CATEGORIES = [
     {"label": "Trending",     "tag_id": None,   "sort": "volume"},
+    {"label": "BTC Live",     "tag_id": "live"},
     {"label": "Politics",     "tag_id": 2},
     {"label": "Sports",       "tag_id": 100639},
     {"label": "Crypto",       "tag_id": 21},

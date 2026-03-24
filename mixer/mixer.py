@@ -1,5 +1,10 @@
 import asyncio
+import re
+from datetime import datetime, timezone
 from config import RESCORE_INTERVAL, SWAP_THRESHOLD
+
+# Matches live finance event slugs like btc-updown-15m-1774385100
+_LIVE_SLUG_RE = re.compile(r"^(btc|eth)-updown-\d+m-\d+$|^bitcoin-up-or-down-.+-et$")
 
 
 class AutonomousDJ:
@@ -63,6 +68,7 @@ class AutonomousDJ:
         while True:
             await asyncio.sleep(RESCORE_INTERVAL)
             await self._refresh_markets()
+            await self._check_live_rotation()
             if self.autonomous:
                 await self._auto_mix()
             self._log_now_playing()
@@ -191,6 +197,74 @@ class AutonomousDJ:
         mode = "AUTO" if self.autonomous else "MANUAL"
         print(f"[DJ] [{mode}] heat={heat:.2f}  {self.current_market['question'][:50]}", flush=True)
 
+    @staticmethod
+    def _is_live_finance(market: dict) -> bool:
+        """Check if a market belongs to a rotating live finance event."""
+        slug = market.get("event_slug", "")
+        return bool(_LIVE_SLUG_RE.match(slug))
+
+    async def _check_live_rotation(self):
+        """If current market is a live finance market that has ended, rotate to next window."""
+        if not self.current_market:
+            return
+        if not self._is_live_finance(self.current_market):
+            return
+        end_str = self.current_market.get("end_date")
+        if not end_str:
+            return
+        try:
+            end_dt = datetime.fromisoformat(end_str.replace("Z", "+00:00"))
+            if datetime.now(timezone.utc) < end_dt:
+                return
+        except (ValueError, TypeError):
+            return
+
+        print("[DJ] Live finance market ended, rotating to next window...", flush=True)
+        await self._rotate_live_market()
+
+    async def _rotate_live_market(self):
+        """Fetch next live finance markets and switch to matching pattern."""
+        try:
+            from polymarket.gamma import fetch_live_finance_markets
+            live = fetch_live_finance_markets()
+            if not live:
+                print("[DJ] No next live market found yet, will retry", flush=True)
+                return
+
+            # Try to find the same pattern (e.g. btc-updown-15m)
+            old_slug = self.current_market.get("event_slug", "")
+            # Extract prefix like "btc-updown-15m" or "bitcoin-up-or-down"
+            prefix = re.sub(r"-\d+$", "", old_slug)  # strip trailing timestamp
+            prefix = re.sub(r"-[a-z]+-\d+-\d+-\d+[ap]m-et$", "", prefix)  # strip date suffix
+
+            match = None
+            for m in live:
+                if m.get("event_slug", "").startswith(prefix) and m["asset_ids"]:
+                    match = m
+                    break
+            # Fallback to any live market
+            if not match:
+                match = next((m for m in live if m["asset_ids"]), None)
+            if not match:
+                print("[DJ] No tradeable live market found", flush=True)
+                return
+
+            # Inject into all_markets and pin
+            existing = next((m for m in self.all_markets if m["slug"] == match["slug"]), None)
+            if not existing:
+                self.all_markets.append(match)
+            aid = self._primary_asset(match)
+            self._switch_market(aid, match)
+            self.pinned_slug = match["slug"]
+
+            # Subscribe to new asset
+            if aid not in self.feed.subscribed:
+                await self.feed.update_subscriptions(add=[aid], remove=[])
+
+            print(f"[DJ] Auto-rotated to: {match['question'][:60]}", flush=True)
+        except Exception as e:
+            print(f"[DJ] Live rotation failed: {e}", flush=True)
+
     def on_market_resolved(self, msg: dict):
         winning = msg.get("winning_outcome", "?")
         question = msg.get("question", "A market")
@@ -200,7 +274,11 @@ class AutonomousDJ:
 
         resolved_ids = set(msg.get("assets_ids", []))
         if self.current_asset in resolved_ids:
+            was_live = self._is_live_finance(self.current_market) if self.current_market else False
             print("[DJ] Current market resolved", flush=True)
             self.current_market = None
             self.current_asset = None
             self.pinned_slug = None
+            # If it was a live finance market, schedule immediate rotation
+            if was_live:
+                asyncio.ensure_future(self._rotate_live_market())
