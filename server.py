@@ -85,7 +85,7 @@ class AppState:
 
             # OSC params being sent
             if aid:
-                amp = _scale(heat, 0, 1, 0.2, 1.4)
+                amp = _scale(heat, 0, 1, 0.1, 0.8)
                 cutoff = _scale(last_price, 0, 1, 60, 115)
                 reverb = _scale(vel, 0, 1, 0.1, 0.85)
                 density = _scale(rate, 0, 1, 0.1, 1.0)
@@ -172,7 +172,7 @@ async def param_push_loop(interval=3.0):
                 prices = list(scorer.price_history.get(aid, []))
                 last_price = prices[-1][1] if prices else 0.5
 
-                amp = _scale(heat, 0, 1, 0.2, 1.4)
+                amp = _scale(heat, 0, 1, 0.1, 0.8)
                 cutoff = _scale(last_price, 0, 1, 60, 115)
                 reverb = _scale(vel, 0, 1, 0.1, 0.85)
                 density = _scale(rate, 0, 1, 0.1, 1.0)

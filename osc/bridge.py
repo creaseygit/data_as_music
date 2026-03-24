@@ -37,8 +37,8 @@ class OSCBridge:
 
         # ── Musical mappings ──────────────────────────────
 
-        # Overall energy of this layer
-        amp     = _scale(heat, 0, 1, 0.2, 1.4)
+        # Overall energy of this layer (capped at 0.8 to prevent clipping)
+        amp     = _scale(heat, 0, 1, 0.1, 0.8)
         # Filter brightness — overbought markets sound bright
         cutoff  = _scale(last_price, 0, 1, 60, 115)
         # Reverb room — volatile markets sound spacious
