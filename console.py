@@ -113,37 +113,54 @@ class LoggingFeed(PolymarketFeed):
 # ── Main ──────────────────────────────────────────────────
 
 async def param_push_loop(dj, interval=3.0):
-    """Continuously push market params to Sonic Pi."""
+    """Continuously push market params to all layers (single market)."""
     while True:
         await asyncio.sleep(interval)
-        if dj.layers:
-            print(f"\n  [PUSH {ts()}] Sending params for {len(dj.layers)} layers:", flush=True)
-            for slot, layer in dj.layers.items():
+        if dj.current_asset:
+            print(f"\n  [PUSH {ts()}] Updating all layers:", flush=True)
+            for slot in dj.layers:
                 try:
-                    dj.osc.push_market_params(slot, layer["asset_id"])
+                    dj.osc.push_market_params(slot, dj.current_asset)
                 except Exception as e:
                     print(f"  [PUSH {ts()}] ERROR [{slot}]: {e}", flush=True)
 
 
 async def status_loop(dj, scorer, interval=15.0):
-    """Periodic status summary."""
+    """Periodic status summary — single market focus."""
     while True:
         await asyncio.sleep(interval)
-        active = len(dj.layers)
         tracked = len(scorer.trade_times)
         total_trades = sum(len(v) for v in scorer.trade_times.values())
+
         print(f"\n{'='*65}", flush=True)
-        print(f"  [STATUS {ts()}] Layers={active}  Tracked markets={tracked}  "
-              f"Recent trades={total_trades}", flush=True)
-        if dj.layers:
-            print(f"  {'Slot':12s}  {'Heat':>5s}  {'Trades':>6s}  Market", flush=True)
-            print(f"  {'-'*12}  {'-'*5}  {'-'*6}  {'-'*35}", flush=True)
-            for slot, layer in dj.layers.items():
-                aid = layer["asset_id"]
-                heat = scorer.heat(aid)
-                trades = len([t for t in scorer.trade_times[aid] if time.time() - t < 60])
-                q = layer["question"][:40]
-                print(f"  {slot:12s}  {heat:5.2f}  {trades:6d}  {q}", flush=True)
+        if dj.current_market and dj.current_asset:
+            aid = dj.current_asset
+            heat = scorer.heat(aid)
+            vel = scorer.price_velocity(aid)
+            rate = scorer.trade_rate(aid)
+            bid, ask = scorer.spreads.get(aid, (0.4, 0.6))
+            prices = list(scorer.price_history.get(aid, []))
+            last_price = prices[-1][1] if prices else 0.5
+            trades_1m = len([t for t in scorer.trade_times[aid] if time.time() - t < 60])
+
+            print(f"  [STATUS {ts()}] CURRENT MARKET:", flush=True)
+            print(f"  {dj.current_market['question'][:60]}", flush=True)
+            print(f"  Heat={heat:.2f}  Price={last_price:.3f}  Vel={vel:.3f}  "
+                  f"Trades/min={trades_1m}  Spread={ask-bid:.4f}", flush=True)
+            print(f"  Tracked={tracked} markets  Total events={total_trades}", flush=True)
+
+            # Show top 5 contenders
+            all_aids = [a for m in dj.all_markets for a in m["asset_ids"]]
+            ranked = scorer.rank(all_aids)[:5]
+            print(f"\n  Top 5 hottest markets:", flush=True)
+            for i, (raid, rscore) in enumerate(ranked):
+                rm = dj._find_market(raid)
+                rq = rm["question"][:45] if rm else raid[:20]
+                current = " <-- PLAYING" if raid == aid else ""
+                print(f"    {i+1}. {rscore:.2f}  {rq}{current}", flush=True)
+        else:
+            print(f"  [STATUS {ts()}] No market playing (ambient mode)", flush=True)
+            print(f"  Tracked={tracked} markets  Total events={total_trades}", flush=True)
         print(f"{'='*65}\n", flush=True)
 
 
