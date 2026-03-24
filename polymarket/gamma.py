@@ -125,10 +125,15 @@ def fetch_markets_by_event_slug(event_slug: str) -> list[dict]:
     raw_markets = event.get("markets", [])
     if not raw_markets:
         return []
+    # Nested markets may lack the parent event slug — inject it
+    parent_slug = event.get("slug", event_slug)
     markets = [
         _normalize_market(m) for m in raw_markets
         if m.get("clobTokenIds")
     ]
+    for m in markets:
+        if not m.get("event_slug"):
+            m["event_slug"] = parent_slug
     # Sort: active non-closed first, then by volume descending
     markets.sort(key=lambda m: (not m.get("active", True), m.get("closed", False), -m.get("volume", 0)))
     return markets

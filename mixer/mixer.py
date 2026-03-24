@@ -195,7 +195,8 @@ class AutonomousDJ:
             return
         heat = self.scorer.heat(self.current_asset) if self.current_asset else 0
         mode = "AUTO" if self.autonomous else "MANUAL"
-        print(f"[DJ] [{mode}] heat={heat:.2f}  {self.current_market['question'][:50]}", flush=True)
+        live_tag = " [LIVE]" if self._is_live_finance(self.current_market) else ""
+        print(f"[DJ] [{mode}]{live_tag} heat={heat:.2f}  {self.current_market['question'][:50]}", flush=True)
 
     @staticmethod
     def _is_live_finance(market: dict) -> bool:
@@ -207,47 +208,64 @@ class AutonomousDJ:
         """If current market is a live finance market that has ended, rotate to next window."""
         if not self.current_market:
             return
-        if not self._is_live_finance(self.current_market):
+        event_slug = self.current_market.get("event_slug", "")
+        is_live = self._is_live_finance(self.current_market)
+        if not is_live:
             return
         end_str = self.current_market.get("end_date")
         if not end_str:
+            print(f"[LIVE] Market is live finance ({event_slug}) but has no end_date", flush=True)
             return
         try:
             end_dt = datetime.fromisoformat(end_str.replace("Z", "+00:00"))
-            if datetime.now(timezone.utc) < end_dt:
+            now_utc = datetime.now(timezone.utc)
+            remaining = (end_dt - now_utc).total_seconds()
+            if remaining > 0:
+                mins = int(remaining // 60)
+                secs = int(remaining % 60)
+                print(f"[LIVE] {event_slug} ends in {mins}m{secs}s ({end_str})", flush=True)
                 return
-        except (ValueError, TypeError):
+        except (ValueError, TypeError) as e:
+            print(f"[LIVE] Failed to parse end_date '{end_str}': {e}", flush=True)
             return
 
-        print("[DJ] Live finance market ended, rotating to next window...", flush=True)
+        print(f"[LIVE] Market ended! Rotating from {event_slug}...", flush=True)
         await self._rotate_live_market()
 
     async def _rotate_live_market(self):
         """Fetch next live finance markets and switch to matching pattern."""
         try:
             from polymarket.gamma import fetch_live_finance_markets
+            print("[LIVE] Fetching live finance markets...", flush=True)
             live = fetch_live_finance_markets()
+            print(f"[LIVE] Found {len(live)} live markets: {[m.get('event_slug','?') for m in live]}", flush=True)
             if not live:
-                print("[DJ] No next live market found yet, will retry", flush=True)
+                print("[LIVE] No next live market found yet, will retry next cycle", flush=True)
                 return
 
             # Try to find the same pattern (e.g. btc-updown-15m)
-            old_slug = self.current_market.get("event_slug", "")
+            old_slug = self.current_market.get("event_slug", "") if self.current_market else ""
             # Extract prefix like "btc-updown-15m" or "bitcoin-up-or-down"
             prefix = re.sub(r"-\d+$", "", old_slug)  # strip trailing timestamp
             prefix = re.sub(r"-[a-z]+-\d+-\d+-\d+[ap]m-et$", "", prefix)  # strip date suffix
+            print(f"[LIVE] Looking for prefix '{prefix}' (was '{old_slug}')", flush=True)
 
             match = None
             for m in live:
-                if m.get("event_slug", "").startswith(prefix) and m["asset_ids"]:
+                es = m.get("event_slug", "")
+                if es.startswith(prefix) and m["asset_ids"] and es != old_slug:
                     match = m
                     break
-            # Fallback to any live market
+            # Fallback to any live market with different slug
+            if not match:
+                match = next((m for m in live if m["asset_ids"] and m.get("event_slug", "") != old_slug), None)
+            # Last resort: same slug (market might still be the only one)
             if not match:
                 match = next((m for m in live if m["asset_ids"]), None)
             if not match:
-                print("[DJ] No tradeable live market found", flush=True)
+                print("[LIVE] No tradeable live market found", flush=True)
                 return
+            print(f"[LIVE] Matched: {match.get('event_slug', '?')} — {match['question'][:50]}", flush=True)
 
             # Inject into all_markets and pin
             existing = next((m for m in self.all_markets if m["slug"] == match["slug"]), None)
