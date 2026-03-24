@@ -157,14 +157,48 @@ async def dj_loop():
 
 
 async def param_push_loop(interval=3.0):
-    """Push OSC params continuously."""
+    """Push params via both run_code (direct set) and OSC."""
     try:
         while True:
             await asyncio.sleep(interval)
-            if state.dj and state.dj.current_asset and state.audio_running:
+            if state.dj and state.dj.current_asset and state.audio_running and state.sonic:
+                aid = state.dj.current_asset
+                scorer = state.scorer
+
+                heat = scorer.heat(aid)
+                vel = scorer.price_velocity(aid)
+                rate = scorer.trade_rate(aid)
+                bid, ask = scorer.spreads.get(aid, (0.4, 0.6))
+                prices = list(scorer.price_history.get(aid, []))
+                last_price = prices[-1][1] if prices else 0.5
+
+                amp = _scale(heat, 0, 1, 0.2, 1.4)
+                cutoff = _scale(last_price, 0, 1, 60, 115)
+                reverb = _scale(vel, 0, 1, 0.1, 0.85)
+                density = _scale(rate, 0, 1, 0.1, 1.0)
+                tone = 1 if last_price >= 0.5 else 0
+                tension = _scale(ask - bid, 0, 0.3, 0.0, 1.0)
+
+                # Push via run_code — guaranteed to update get() state
+                code = ""
+                for layer in ["kick", "bass", "pad", "lead", "atmos"]:
+                    code += (
+                        f'set :{layer}_amp, {amp:.3f}; '
+                        f'set :{layer}_cutoff, {cutoff:.1f}; '
+                        f'set :{layer}_reverb, {reverb:.3f}; '
+                        f'set :{layer}_density, {density:.3f}; '
+                        f'set :{layer}_tone, {tone}; '
+                        f'set :{layer}_tension, {tension:.3f}\n'
+                    )
+                try:
+                    await state.sonic.run_code(code)
+                except Exception:
+                    pass
+
+                # Also push via OSC for any sync listeners
                 for slot in LAYER_INSTRUMENTS:
                     try:
-                        state.osc.push_market_params(slot, state.dj.current_asset)
+                        state.osc.push_market_params(slot, aid)
                     except Exception:
                         pass
     except asyncio.CancelledError:
@@ -243,7 +277,18 @@ play :g5, amp: 2, release: 0.5
 end
 """)
     elif test_type == "all_layers":
-        # Force all layers on via OSC
+        # Set layer state directly via run_code AND send OSC
+        await state.sonic.run_code("""
+[:kick, :bass, :pad, :lead, :atmos].each do |layer|
+  set :"#{layer}_amp", 1.0
+  set :"#{layer}_cutoff", 85.0
+  set :"#{layer}_reverb", 0.4
+  set :"#{layer}_density", 0.6
+  set :"#{layer}_tone", 1
+  set :"#{layer}_tension", 0.2
+end
+""")
+        # Also send via OSC for any listeners
         from pythonosc import udp_client
         osc = udp_client.SimpleUDPClient("127.0.0.1", state.sonic.osc_cues_port)
         for layer in ["kick", "bass", "pad", "lead", "atmos"]:
