@@ -13,7 +13,7 @@ cd C:\Github\polymarket_dj
 .\venv\Scripts\activate
 python server.py
 # Open http://localhost:8888
-# Click Start, pick a track (market_pulse_v2 recommended)
+# Click Start, pick a track (market_pulse_v3 recommended)
 # Browse a category or paste a Polymarket URL to play a market
 ```
 
@@ -32,15 +32,15 @@ Polymarket APIs → Python Brain → Sonic Pi (headless) → Audio Out
 2. `polymarket/websocket.py` — WebSocket subscribes to asset IDs, receives price changes/trades/book updates
 3. `polymarket/scorer.py` — `MarketScorer` computes heat score (0-1) from price velocity, trade rate, volume, spread
 4. `mixer/mixer.py` — `AutonomousDJ` picks which market drives the song (manual or autonomous mode). Always selects the primary (Yes/Up) outcome via `_primary_asset()`
-5. `osc/bridge.py` — Maps heat/price/velocity/spread to musical params (amp, cutoff, reverb, density, tone, tension)
+5. `osc/bridge.py` — Maps heat/price/velocity/spread to musical params (amp, cutoff, reverb, density, tone, tension, swing)
 6. `sonic_pi/headless.py` — Boots Sonic Pi daemon without GUI, sends code via OSC
 7. Params pushed to Sonic Pi via `run_code` (direct `set`) every 3 seconds
 
 ### Price Display
-The display price shown in the web UI comes from the **Gamma REST API** (`outcomePrices` field), polled every **5 seconds** via `price_poll_loop`. This matches what Polymarket shows on their site. WebSocket data drives heat scoring and music reactivity but is NOT used for the display price — raw trade prices on thin order books produce misleading spikes.
+The display price uses the **WebSocket bid/ask midpoint** as the primary source (real-time, matches Polymarket's live display). Falls back to the **Gamma REST API** (`outcomePrices` field, polled every 5s via `price_poll_loop`) when WebSocket data hasn't arrived yet. The Gamma API can be stale on fast-moving short-duration markets (e.g., 15-minute BTC windows), so the WebSocket midpoint is preferred when available.
 
 ### Single Market Model
-The DJ plays **one market at a time**. All 5 instrument layers (kick, bass, pad, lead, atmosphere) respond to the same market. Two modes:
+The DJ plays **one market at a time**. All 5 instrument layers (kick, bass, pad, lead, atmosphere) respond to the same market but with **per-layer parameter differentiation** — each layer receives different amp multipliers, cutoff offsets, and density curves (see Per-Layer Differentiation below). Two modes:
 - **Manual (default):** Pick a market from browse tabs or paste a URL; it plays until you pick another
 - **Autonomous:** DJ auto-switches to the hottest market when heat delta exceeds `SWAP_THRESHOLD` (0.25)
 
@@ -59,7 +59,8 @@ Markets have multiple outcomes (e.g., "Yes"/"No" or "Up"/"Down"), each with its 
 | `mixer/mixer.py` | `AutonomousDJ` — market selection, `_primary_asset()`, `_seed_prices()`, manual/autonomous modes |
 | `osc/bridge.py` | Market data → musical parameter mapping. Amp capped at 0.8 to prevent clipping |
 | `sonic_pi/headless.py` | Boots Sonic Pi daemon headlessly, manages keep-alive, sends code via `/run-code` OSC, listens for Spider errors |
-| `sonic_pi/market_pulse_v2.rb` | **Best track.** TB303 acid bass, layered pads (hollow + dsaw), stepwise prophet lead, slicer atmos, probabilistic hats |
+| `sonic_pi/market_pulse_v2.rb` | Legacy track. TB303 acid bass, layered pads, stepwise lead, slicer atmos, probabilistic hats |
+| `sonic_pi/market_pulse_v3.rb` | **Best track.** Per-layer differentiation, 32-bar structural cycle, swing, snare + sub-bass layers, event stingers, polyrhythmic percussion |
 
 ## How Sonic Pi Integration Works
 
@@ -79,22 +80,48 @@ The headless launcher (`sonic_pi/headless.py`):
 
 ## Musical Parameter Mapping
 
+Base values computed from market data, then differentiated per layer:
+
 | Market Signal | Musical Param | Range |
 |--------------|---------------|-------|
 | Heat score (composite) | amp | 0.1 – 0.8 |
-| API price (Yes/Up outcome) | cutoff | 60 – 115 |
+| WS midpoint price (Yes/Up outcome) | cutoff | 60 – 115 |
 | Price velocity | reverb | 0.1 – 0.85 |
 | Trade rate/min | density | 0.1 – 1.0 |
-| Price >= 0.5 | tone | 1 (major/bullish) |
-| Price < 0.5 | tone | 0 (minor/bearish) |
+| Price with hysteresis (0.45/0.55 thresholds) | tone | 1 (major) / 0 (minor) |
 | Bid-ask spread | tension | 0.0 – 1.0 |
+| Tension × 0.06 | swing | 0.0 – 0.06 |
+
+### Per-Layer Differentiation
+
+Each layer receives modified versions of the base params (`param_push_loop` in `server.py`):
+
+| Layer | Amp | Cutoff | Reverb | Density | Swing | Notes |
+|-------|-----|--------|--------|---------|-------|-------|
+| **kick** | ×1.0 | −20 | ×0.3 (dry) | direct | from tension | — |
+| **bass** | ×0.9 | −15 | ×0.2 (driest) | direct | none | — |
+| **pad** | 0.3–0.7 (always present) | full | ×1.3 (wet) | **inverse** | none | Quiet markets = open pad |
+| **lead** | ×0.8 (gated off below density 0.3) | +10 | full | offset −0.15 | none | Threshold gate |
+| **atmos** | ×0.5 | **EMA smoothed** | ×1.5 (wettest) | **EMA smoothed** | none | Slow-reacting |
+
+### Event Detection
+
+Python detects market events and pushes one-shot triggers to Sonic Pi:
+- **Heat spike** (delta > 0.15): `set :event_spike, 1` → crash cymbal + pentatonic stab
+- **Price move** (delta > 3¢): `set :event_price_move, ±1` → ascending (up) or descending (down) arpeggio
+
+### Tone Hysteresis
+
+Tone uses hysteresis to prevent major/minor flickering when price hovers near 0.50:
+- Must drop below **0.45** to switch to minor
+- Must rise above **0.55** to switch to major
 
 ## Background Loops
 
 | Loop | Interval | Purpose |
 |------|----------|---------|
-| `param_push_loop` | 3s | Push musical params to Sonic Pi via `run_code` + OSC |
-| `price_poll_loop` | 5s | Fetch current market's API price from Gamma (display accuracy) |
+| `param_push_loop` | 3s | Push per-layer differentiated params + event triggers to Sonic Pi via `run_code` + OSC |
+| `price_poll_loop` | 5s | Fetch current market's API price from Gamma (fallback, uses `asyncio.to_thread`) |
 | `dj_loop` / `_refresh_markets` | 30s | Re-fetch top 50 markets, update scorer volumes, seed prices |
 | WebSocket feed | Real-time | Price changes, trades, book updates → scorer |
 | UI status poll | 1.5s | Browser polls `/api/status` to update Now Playing + controls |
@@ -123,10 +150,12 @@ A session-only list (JS array, not persisted) of markets the user has played. Cl
 - **`clobTokenIds`** from Gamma API is a JSON string, not a list — parsed by `_parse_clob_token_ids()` in `gamma.py`
 - **`outcomePrices`** from Gamma API is also a JSON string — parsed by `_parse_json_string()` in `gamma.py`
 - **Outcome ordering** — `asset_ids[0]` does NOT always correspond to "Yes"/"Up". Use `_primary_asset()` which checks the `outcomes` array to find the correct one
-- **WebSocket prices are unreliable for display** — Raw trade prices spike to 0.99/0.01 on thin order books. Always use the API price (`outcome_prices`) for display. WebSocket data is only used for heat scoring and music reactivity
+- **Gamma API prices can be stale** — For fast-moving short-duration markets (e.g., 15-min BTC windows), the Gamma REST API `outcomePrices` may lag behind the live price. Display now uses WebSocket bid/ask midpoint as primary source, with Gamma as fallback
+- **WebSocket raw trade prices are unreliable** — Raw trade prices spike to 0.99/0.01 on thin order books. The bid/ask midpoint from the order book is used instead (more stable than last trade price)
 - **WebSocket first message is a list** — `_dispatch()` handles both list and dict messages
 - **Audio device** — scsynth outputs to Windows default audio device
-- **Headless error visibility** — Spider errors are now captured via a UDP listener on `gui_listen_port` and printed to the server console as `[SONIC PI ERROR]`. Without this, errors are silently swallowed in headless mode
+- **Headless error visibility** — Spider errors are now captured via a UDP listener on `gui_listen_port` and printed to the server console as `[SONIC PI ERROR]`. Without this, errors are silently swallowed in headless mode. Noisy messages (`/incoming/osc`, `/log/info`) are filtered out
+- **Console log tags** — `[PARAMS]` = data state every 3s, `[PRICE POLL]` = Gamma API poll every 5s, `[EVENT]` = heat spike or price move detected, `[DJ]` = market switch/selection
 - **Browse tab tag_ids** — Hardcoded in `BROWSE_CATEGORIES` in config.py. If Polymarket changes their tag IDs, these need updating. Current values: Politics=2, Sports=100639, Crypto=21, Finance=120, Culture=596, Geopolitics=100265, Tech=1401
 
 ## Web API Endpoints
@@ -159,7 +188,10 @@ New `.rb` files in `sonic_pi/` are auto-discovered by the web UI. A track must:
   set :"#{layer}_density", 0.5
   set :"#{layer}_tone",    1
   set :"#{layer}_tension", 0.0
+  set :"#{layer}_swing",   0.0
 end
+set :event_spike, 0
+set :event_price_move, 0
 ```
 
 2. Use `get(:kick_amp)` etc. in live_loops to read params (NOT `sync` for params — Python pushes via `run_code`/`set`)
@@ -176,7 +208,17 @@ end
 
 8. **Use correct chord names** — `:major7`, `:minor7`, `:maj9`, `:m9`, `:dom7` (NOT `:major9`, `:minor9`, `:M9`)
 
-See `market_pulse_v2.rb` for the reference implementation.
+See `market_pulse_v3.rb` for the reference implementation.
+
+### market_pulse_v3 Structure
+
+The v3 track adds:
+- **32-bar structural cycle** via `live_loop :bar_clock` — bars 0–23 normal, 24–27 breakdown (kick drops, sparse lead, sub-only bass), 28–31 build (accelerating kicks, snare rolls)
+- **Snare layer** — beats 2 & 4 with ghost notes, sample variation, flams on tense markets
+- **Sub-bass** — pure `:sine` an octave below TB303, always present, louder during breakdowns
+- **Polyrhythmic percussion** — 3-over-4 bell pattern at higher densities
+- **Swing** — hats and kick offset by `get(:kick_swing)` on off-beats
+- **Event responder** — `live_loop :event_responder` checks `:event_spike` and `:event_price_move` every 0.5s, plays crash/stab or ascending/descending arpeggios
 
 ## Tech Stack
 

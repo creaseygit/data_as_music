@@ -53,6 +53,13 @@ class AppState:
         self._push_task = None
         self._price_task = None
 
+        # Smoothing state for per-layer param differentiation
+        self._smooth_density = 0.5
+        self._smooth_cutoff = 80.0
+        self._prev_heat = 0.0
+        self._prev_price = 0.5
+        self._current_tone = 1
+
     def _find_tracks(self):
         """Find all .rb track files."""
         tracks = {}
@@ -71,12 +78,13 @@ class AppState:
             rate = self.scorer.trade_rate(aid) if aid else 0
             bid, ask = self.scorer.spreads.get(aid, (0.4, 0.6))
 
-            # Display price: use API outcome_prices (matches Polymarket site)
+            # Display price: prefer WebSocket bid/ask midpoint (real-time),
+            # fall back to API outcome_prices (can be stale on fast markets)
             api_price = self._get_api_price(self.dj.current_market, aid)
-            # Websocket price for music reactivity
-            prices = list(self.scorer.price_history.get(aid, []))
-            ws_price = prices[-1][1] if prices else None
-            display_price = api_price if api_price is not None else (ws_price or 0.5)
+            ws_mid = None
+            if bid != 0.4 or ask != 0.6:  # not the default — real WS data
+                ws_mid = (bid + ask) / 2.0
+            display_price = ws_mid if ws_mid is not None else (api_price if api_price is not None else 0.5)
 
             market_info = {
                 "question": self.dj.current_market["question"],
@@ -87,22 +95,24 @@ class AppState:
                 "velocity": round(vel, 4),
                 "trade_rate": round(rate, 3),
                 "spread": round(ask - bid, 4),
-                "tone": "bullish" if display_price >= 0.5 else "bearish",
+                "tone": "bullish" if self._current_tone == 1 else "bearish",
             }
 
-            # OSC params being sent
+            # OSC params being sent (base values — layers differ)
             if aid:
                 amp = _scale(heat, 0, 1, 0.1, 0.8)
                 cutoff = _scale(display_price, 0, 1, 60, 115)
                 reverb = _scale(vel, 0, 1, 0.1, 0.85)
                 density = _scale(rate, 0, 1, 0.1, 1.0)
                 tension = _scale(ask - bid, 0, 0.3, 0.0, 1.0)
+                swing = tension * 0.06
                 market_info["osc"] = {
                     "amp": round(amp, 2),
                     "cutoff": round(cutoff, 1),
                     "reverb": round(reverb, 2),
                     "density": round(density, 2),
                     "tension": round(tension, 2),
+                    "swing": round(swing, 3),
                 }
 
         return {
@@ -156,7 +166,7 @@ async def dj_loop():
 
 
 async def param_push_loop(interval=3.0):
-    """Push params via both run_code (direct set) and OSC."""
+    """Push per-layer params with differentiation, smoothing, and event detection."""
     try:
         while True:
             await asyncio.sleep(interval)
@@ -168,29 +178,108 @@ async def param_push_loop(interval=3.0):
                 vel = scorer.price_velocity(aid)
                 rate = scorer.trade_rate(aid)
                 bid, ask = scorer.spreads.get(aid, (0.4, 0.6))
-                # Use API price for cutoff/tone, websocket for reactivity
+                spread = ask - bid
+                # Prefer WebSocket bid/ask midpoint (real-time), fall back to API
                 api_price = state._get_api_price(state.dj.current_market, aid) if state.dj.current_market else None
-                prices = list(scorer.price_history.get(aid, []))
-                last_price = api_price if api_price is not None else (prices[-1][1] if prices else 0.5)
+                ws_mid = None
+                if bid != 0.4 or ask != 0.6:  # not default — real WS data
+                    ws_mid = (bid + ask) / 2.0
+                last_price = ws_mid if ws_mid is not None else (api_price if api_price is not None else 0.5)
 
+                # Base values
                 amp = _scale(heat, 0, 1, 0.1, 0.8)
                 cutoff = _scale(last_price, 0, 1, 60, 115)
                 reverb = _scale(vel, 0, 1, 0.1, 0.85)
                 density = _scale(rate, 0, 1, 0.1, 1.0)
-                tone = 1 if last_price >= 0.5 else 0
-                tension = _scale(ask - bid, 0, 0.3, 0.0, 1.0)
+                tension = _scale(spread, 0, 0.3, 0.0, 1.0)
 
-                # Push via run_code — guaranteed to update get() state
-                code = ""
-                for layer in ["kick", "bass", "pad", "lead", "atmos"]:
-                    code += (
-                        f'set :{layer}_amp, {amp:.3f}; '
-                        f'set :{layer}_cutoff, {cutoff:.1f}; '
-                        f'set :{layer}_reverb, {reverb:.3f}; '
-                        f'set :{layer}_density, {density:.3f}; '
-                        f'set :{layer}_tone, {tone}; '
-                        f'set :{layer}_tension, {tension:.3f}\n'
-                    )
+                # Tone with hysteresis — prevent flickering near 0.50
+                if state._current_tone == 1 and last_price < 0.45:
+                    state._current_tone = 0
+                elif state._current_tone == 0 and last_price > 0.55:
+                    state._current_tone = 1
+                tone = state._current_tone
+
+                # EMA smoothing for atmos (slow-reacting layer)
+                alpha = 0.15
+                state._smooth_density = state._smooth_density * (1 - alpha) + density * alpha
+                state._smooth_cutoff = state._smooth_cutoff * (1 - alpha) + cutoff * alpha
+
+                # Swing derived from tension (0.0 – 0.06)
+                swing = tension * 0.06
+
+                # ── Event detection ──────────────────────────
+                heat_delta = abs(heat - state._prev_heat)
+                price_delta = abs(last_price - state._prev_price)
+                event_code = ""
+                if heat_delta > 0.15:
+                    event_code += "set :event_spike, 1\n"
+                if price_delta > 0.03:
+                    direction = 1 if last_price > state._prev_price else -1
+                    event_code += f"set :event_price_move, {direction}\n"
+                if event_code:
+                    print(f"[EVENT] heat_delta={heat_delta:.3f} price_delta={price_delta:.4f}", flush=True)
+                state._prev_heat = heat
+                state._prev_price = last_price
+
+                # Log data state every push
+                tone_str = "major" if tone == 1 else "minor"
+                print(f"[PARAMS] price={last_price:.4f} heat={heat:.3f} vel={vel:.4f} rate={rate:.3f} spread={spread:.4f} tone={tone_str}", flush=True)
+
+                # ── Per-layer differentiation ────────────────
+                layer_params = {
+                    "kick": {
+                        "amp": amp,
+                        "cutoff": max(cutoff - 20, 60),
+                        "reverb": reverb * 0.3,
+                        "density": density,
+                        "tone": tone,
+                        "tension": tension,
+                        "swing": swing,
+                    },
+                    "bass": {
+                        "amp": amp * 0.9,
+                        "cutoff": max(cutoff - 15, 60),
+                        "reverb": reverb * 0.2,
+                        "density": density,
+                        "tone": tone,
+                        "tension": tension,
+                        "swing": 0.0,
+                    },
+                    "pad": {
+                        "amp": _scale(amp, 0.1, 0.8, 0.3, 0.7),
+                        "cutoff": cutoff,
+                        "reverb": min(reverb * 1.3, 0.85),
+                        "density": max(1.0 - (density * 0.5), 0.3),
+                        "tone": tone,
+                        "tension": tension,
+                        "swing": 0.0,
+                    },
+                    "lead": {
+                        "amp": amp * 0.8 if density > 0.3 else 0.0,
+                        "cutoff": min(cutoff + 10, 115),
+                        "reverb": reverb,
+                        "density": max(density - 0.15, 0.1),
+                        "tone": tone,
+                        "tension": tension,
+                        "swing": 0.0,
+                    },
+                    "atmos": {
+                        "amp": amp * 0.5,
+                        "cutoff": state._smooth_cutoff,
+                        "reverb": min(reverb * 1.5, 0.85),
+                        "density": state._smooth_density,
+                        "tone": tone,
+                        "tension": tension * 0.7,
+                        "swing": 0.0,
+                    },
+                }
+
+                code = event_code
+                for layer, params in layer_params.items():
+                    parts = [f"set :{layer}_{k}, {v:.3f}" for k, v in params.items()]
+                    code += "; ".join(parts) + "\n"
+
                 try:
                     await state.sonic.run_code(code)
                 except Exception:
@@ -209,20 +298,33 @@ async def param_push_loop(interval=3.0):
 async def price_poll_loop(interval=5.0):
     """Poll Gamma API for current market price every 5s."""
     import polymarket.gamma as gamma_module
+    print("[PRICE POLL] Loop started", flush=True)
     try:
         while True:
             await asyncio.sleep(interval)
-            if state.dj and state.dj.current_market:
-                slug = state.dj.current_market.get("slug")
-                if not slug:
-                    continue
-                try:
-                    fresh = gamma_module.fetch_market_by_slug(slug)
-                    if fresh and fresh.get("outcome_prices"):
-                        state.dj.current_market["outcome_prices"] = fresh["outcome_prices"]
-                        state.dj.current_market["outcomes"] = fresh.get("outcomes", [])
-                except Exception:
-                    pass
+            if not (state.dj and state.dj.current_market):
+                continue
+            slug = state.dj.current_market.get("slug")
+            if not slug:
+                print("[PRICE POLL] No slug on current market", flush=True)
+                continue
+            try:
+                fresh = await asyncio.to_thread(gamma_module.fetch_market_by_slug, slug)
+                if fresh and fresh.get("outcome_prices"):
+                    old_prices = state.dj.current_market.get("outcome_prices", [])
+                    new_prices = fresh["outcome_prices"]
+                    state.dj.current_market["outcome_prices"] = new_prices
+                    state.dj.current_market["outcomes"] = fresh.get("outcomes", [])
+                    if old_prices != new_prices:
+                        outcomes = fresh.get("outcomes", [])
+                        parts = [f"{outcomes[i]}={new_prices[i]:.4f}" for i in range(len(new_prices)) if i < len(outcomes)]
+                        print(f"[PRICE POLL] {slug}: UPDATED {' | '.join(parts)}", flush=True)
+                    else:
+                        print(f"[PRICE POLL] {slug}: unchanged {new_prices}", flush=True)
+                else:
+                    print(f"[PRICE POLL] {slug}: no data returned", flush=True)
+            except Exception as e:
+                print(f"[PRICE POLL] {slug}: error: {e}", flush=True)
     except asyncio.CancelledError:
         pass
 

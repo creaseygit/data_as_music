@@ -189,7 +189,7 @@ class SonicPiHeadless:
                         elif addr == "/log/multi_message":
                             # Spider sends log messages here too
                             pass
-                        else:
+                        elif addr not in ("/incoming/osc", "/log/info"):
                             print(f"[SONIC PI MSG] {addr}", flush=True)
                     except Exception:
                         pass
