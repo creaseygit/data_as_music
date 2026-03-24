@@ -30,7 +30,7 @@ from polymarket.websocket import PolymarketFeed
 from mixer.mixer import AutonomousDJ
 from osc.bridge import OSCBridge, SLOT_OSC_MAP, _scale
 from sonic_pi.headless import SonicPiHeadless
-from config import RESCORE_INTERVAL, LAYER_INSTRUMENTS
+from config import RESCORE_INTERVAL, LAYER_INSTRUMENTS, BROWSE_CATEGORIES
 
 
 # ── Global state ──────────────────────────────────────────
@@ -51,6 +51,7 @@ class AppState:
         self._feed_task = None
         self._dj_task = None
         self._push_task = None
+        self._price_task = None
 
     def _find_tracks(self):
         """Find all .rb track files."""
@@ -69,24 +70,30 @@ class AppState:
             vel = self.scorer.price_velocity(aid) if aid else 0
             rate = self.scorer.trade_rate(aid) if aid else 0
             bid, ask = self.scorer.spreads.get(aid, (0.4, 0.6))
+
+            # Display price: use API outcome_prices (matches Polymarket site)
+            api_price = self._get_api_price(self.dj.current_market, aid)
+            # Websocket price for music reactivity
             prices = list(self.scorer.price_history.get(aid, []))
-            last_price = prices[-1][1] if prices else 0.5
+            ws_price = prices[-1][1] if prices else None
+            display_price = api_price if api_price is not None else (ws_price or 0.5)
 
             market_info = {
                 "question": self.dj.current_market["question"],
                 "slug": self.dj.current_market.get("slug", ""),
+                "event_slug": self.dj.current_market.get("event_slug", ""),
                 "heat": round(heat, 3),
-                "price": round(last_price, 4),
+                "price": round(display_price, 4),
                 "velocity": round(vel, 4),
                 "trade_rate": round(rate, 3),
                 "spread": round(ask - bid, 4),
-                "tone": "bullish" if last_price >= 0.5 else "bearish",
+                "tone": "bullish" if display_price >= 0.5 else "bearish",
             }
 
             # OSC params being sent
             if aid:
                 amp = _scale(heat, 0, 1, 0.1, 0.8)
-                cutoff = _scale(last_price, 0, 1, 60, 115)
+                cutoff = _scale(display_price, 0, 1, 60, 115)
                 reverb = _scale(vel, 0, 1, 0.1, 0.85)
                 density = _scale(rate, 0, 1, 0.1, 1.0)
                 tension = _scale(ask - bid, 0, 0.3, 0.0, 1.0)
@@ -98,23 +105,6 @@ class AppState:
                     "tension": round(tension, 2),
                 }
 
-        # Top markets
-        top_markets = []
-        if self.dj and self.dj.all_markets:
-            all_aids = [a for m in self.dj.all_markets for a in m["asset_ids"]]
-            ranked = self.scorer.rank(all_aids)[:10]
-            for aid, score in ranked:
-                m = self.dj._find_market(aid)
-                if m:
-                    is_current = (self.dj.current_asset == aid)
-                    top_markets.append({
-                        "question": m["question"],
-                        "slug": m.get("slug", ""),
-                        "heat": round(score, 3),
-                        "volume": m.get("volume", 0),
-                        "playing": is_current,
-                    })
-
         return {
             "audio_running": self.audio_running,
             "feed_running": self.feed_running,
@@ -123,9 +113,18 @@ class AppState:
             "autonomous": self.dj.autonomous if self.dj else False,
             "pinned": self.dj.pinned_slug if self.dj else None,
             "current_market": market_info,
-            "top_markets": top_markets,
             "event_rate": self._get_event_rate(),
         }
+
+    @staticmethod
+    def _get_api_price(market: dict, asset_id: str) -> float | None:
+        """Get the API-reported price for an asset_id (matches Polymarket display)."""
+        asset_ids = market.get("asset_ids", [])
+        outcome_prices = market.get("outcome_prices", [])
+        if asset_id in asset_ids and len(outcome_prices) == len(asset_ids):
+            idx = asset_ids.index(asset_id)
+            return outcome_prices[idx]
+        return None
 
     def _get_event_rate(self):
         total = sum(len(v) for v in self.scorer.trade_times.values())
@@ -169,8 +168,10 @@ async def param_push_loop(interval=3.0):
                 vel = scorer.price_velocity(aid)
                 rate = scorer.trade_rate(aid)
                 bid, ask = scorer.spreads.get(aid, (0.4, 0.6))
+                # Use API price for cutoff/tone, websocket for reactivity
+                api_price = state._get_api_price(state.dj.current_market, aid) if state.dj.current_market else None
                 prices = list(scorer.price_history.get(aid, []))
-                last_price = prices[-1][1] if prices else 0.5
+                last_price = api_price if api_price is not None else (prices[-1][1] if prices else 0.5)
 
                 amp = _scale(heat, 0, 1, 0.1, 0.8)
                 cutoff = _scale(last_price, 0, 1, 60, 115)
@@ -201,6 +202,27 @@ async def param_push_loop(interval=3.0):
                         state.osc.push_market_params(slot, aid)
                     except Exception:
                         pass
+    except asyncio.CancelledError:
+        pass
+
+
+async def price_poll_loop(interval=5.0):
+    """Poll Gamma API for current market price every 5s."""
+    import polymarket.gamma as gamma_module
+    try:
+        while True:
+            await asyncio.sleep(interval)
+            if state.dj and state.dj.current_market:
+                slug = state.dj.current_market.get("slug")
+                if not slug:
+                    continue
+                try:
+                    fresh = gamma_module.fetch_market_by_slug(slug)
+                    if fresh and fresh.get("outcome_prices"):
+                        state.dj.current_market["outcome_prices"] = fresh["outcome_prices"]
+                        state.dj.current_market["outcomes"] = fresh.get("outcomes", [])
+                except Exception:
+                    pass
     except asyncio.CancelledError:
         pass
 
@@ -243,8 +265,9 @@ async def handle_start_audio(request):
         state.audio_running = True
         await asyncio.sleep(2)
 
-        # Start param push
+        # Start background loops
         state._push_task = asyncio.create_task(param_push_loop())
+        state._price_task = asyncio.create_task(price_poll_loop())
 
         return web.json_response({"ok": True, "track": track_name,
                                   "osc_port": state.sonic.osc_cues_port})
@@ -307,9 +330,11 @@ async def handle_stop_audio(request):
     if not state.audio_running:
         return web.json_response({"error": "Audio not running"}, status=400)
 
-    if state._push_task:
-        state._push_task.cancel()
-        state._push_task = None
+    for t in [state._push_task, state._price_task]:
+        if t:
+            t.cancel()
+    state._push_task = None
+    state._price_task = None
 
     if state.sonic:
         await state.sonic.shutdown()
@@ -351,6 +376,68 @@ async def handle_pin_market(request):
     return web.json_response({"error": "DJ not running"}, status=400)
 
 
+async def handle_play_url(request):
+    """Play a market from a Polymarket URL."""
+    from urllib.parse import urlparse
+    import polymarket.gamma as gamma_module
+
+    data = await request.json()
+    url = (data.get("url") or "").strip()
+    if not url:
+        return web.json_response({"error": "url required"}, status=400)
+    if not state.dj:
+        return web.json_response({"error": "DJ not running"}, status=400)
+
+    # Parse URL: /event/{event_slug} or /event/{event_slug}/{market_slug}
+    try:
+        parsed = urlparse(url)
+        path = parsed.path.rstrip("/")
+        parts = [p for p in path.split("/") if p]
+        # Expected: ["event", event_slug] or ["event", event_slug, market_slug]
+        if len(parts) < 2 or parts[0] != "event":
+            return web.json_response({"error": "Invalid URL format. Expected: polymarket.com/event/..."}, status=400)
+
+        event_slug = parts[1]
+        market_slug = parts[2] if len(parts) >= 3 else None
+    except Exception:
+        return web.json_response({"error": "Could not parse URL"}, status=400)
+
+    try:
+        market = None
+
+        # Try market slug first (more specific)
+        if market_slug:
+            market = gamma_module.fetch_market_by_slug(market_slug)
+
+        # Fall back to event slug — pick the first tradeable market in the event
+        if not market:
+            event_markets = gamma_module.fetch_markets_by_event_slug(event_slug)
+            if event_markets:
+                market = event_markets[0]
+
+        if not market or not market.get("asset_ids"):
+            return web.json_response({"error": f"No tradeable market found for: {event_slug}"}, status=404)
+
+        # Inject into DJ's market list if not already there
+        existing = next((m for m in state.dj.all_markets if m["slug"] == market["slug"]), None)
+        if not existing:
+            state.dj.all_markets.append(market)
+            # Subscribe to its asset IDs
+            for aid in market["asset_ids"]:
+                state.scorer.set_volume(aid, market["volume"])
+            if state.feed:
+                new_ids = [aid for aid in market["asset_ids"] if aid not in state.feed.subscribed]
+                if new_ids:
+                    await state.feed.update_subscriptions(add=new_ids, remove=[])
+
+        # Pin and play
+        state.dj.pin_market(market["slug"])
+        return web.json_response({"ok": True, "pinned": market["slug"], "question": market["question"]})
+
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+
 async def handle_unpin(request):
     """Unpin market."""
     if state.dj:
@@ -374,9 +461,11 @@ async def handle_kill_all(request):
     import subprocess as sp
 
     # Stop our own audio first
-    if state._push_task:
-        state._push_task.cancel()
-        state._push_task = None
+    for t in [state._push_task, state._price_task]:
+        if t:
+            t.cancel()
+    state._push_task = None
+    state._price_task = None
     if state.sonic:
         await state.sonic.shutdown()
         state.sonic = None
@@ -398,6 +487,47 @@ async def handle_kill_all(request):
     msg = f"Killed: {', '.join(killed)}" if killed else "No orphaned processes found"
     print(f"[SERVER] Kill all: {msg}", flush=True)
     return web.json_response({"ok": True, "message": msg})
+
+
+async def handle_browse(request):
+    """Browse markets by category."""
+    import polymarket.gamma as gamma_module
+    tag_id = request.query.get("tag_id")
+    sort = request.query.get("sort", "volume")
+    limit = int(request.query.get("limit", "10"))
+    try:
+        tag_id_int = int(tag_id) if tag_id else None
+        markets = gamma_module.fetch_browse_markets(tag_id=tag_id_int, limit=limit, sort=sort)
+        from mixer.mixer import AutonomousDJ
+        result = []
+        for m in markets:
+            prices = m.get("outcome_prices", [])
+            outcomes = m.get("outcomes", [])
+            # Find primary (Yes/Up) outcome price
+            primary_price = None
+            if prices and outcomes and len(prices) == len(outcomes):
+                for i, name in enumerate(outcomes):
+                    if name.lower() in ("yes", "up"):
+                        primary_price = prices[i]
+                        break
+            if primary_price is None and prices:
+                primary_price = prices[0]
+            result.append({
+                "question": m["question"],
+                "slug": m["slug"],
+                "event_slug": m.get("event_slug", ""),
+                "volume": m.get("volume", 0),
+                "price": round(primary_price, 4) if primary_price is not None else None,
+                "end_date": m.get("end_date"),
+            })
+        return web.json_response({"ok": True, "markets": result})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def handle_categories(request):
+    """Return available browse categories."""
+    return web.json_response({"categories": BROWSE_CATEGORIES})
 
 
 async def handle_index(request):
@@ -456,6 +586,40 @@ HTML_PAGE = r"""<!DOCTYPE html>
   .market-question { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .market-meta { font-size: 11px; color: #555; margin-top: 3px; display: flex; gap: 14px; }
   .market-play-badge { color: #00ff88; font-size: 11px; font-weight: bold; white-space: nowrap; }
+  .market-link { color: #00aaff; text-decoration: none; font-size: 16px; padding: 6px 10px; border: 1px solid #1a1a2e; border-radius: 4px; transition: all 0.15s; white-space: nowrap; }
+  .market-link:hover { color: #fff; background: #00aaff22; border-color: #00aaff; }
+  .market-tags { font-size: 10px; color: #444; }
+
+  .url-row { display: flex; gap: 8px; margin-bottom: 12px; }
+  .url-row input {
+    flex: 1; background: #1a1a2e; color: #e0e0e0; border: 1px solid #333;
+    padding: 8px 12px; border-radius: 4px; font-family: inherit; font-size: 13px;
+  }
+  .url-row input::placeholder { color: #444; }
+  .url-row input:focus { outline: none; border-color: #00aaff; }
+  .url-status { font-size: 11px; color: #555; margin-bottom: 8px; min-height: 16px; }
+
+  .browse-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+  .browse-tab {
+    background: #1a1a2e; color: #888; border: 1px solid #222; border-radius: 4px;
+    padding: 5px 12px; cursor: pointer; font-family: inherit; font-size: 12px; transition: all 0.15s;
+  }
+  .browse-tab:hover { border-color: #00aaff; color: #ccc; }
+  .browse-tab.active { background: #00aaff22; border-color: #00aaff; color: #00aaff; }
+  .browse-loading { color: #444; font-size: 12px; padding: 10px 0; }
+  .browse-card {
+    background: #0d0d15; border: 1px solid #1a1a2e; border-radius: 6px;
+    padding: 10px 14px; margin-bottom: 5px; display: flex; align-items: center; gap: 10px;
+    transition: all 0.15s;
+  }
+  .browse-card:hover { border-color: #333; }
+  .browse-body { flex: 1; min-width: 0; }
+  .browse-question { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #ccc; }
+  .browse-meta { font-size: 11px; color: #555; margin-top: 2px; }
+  .browse-price { color: #00aaff; font-size: 14px; font-weight: bold; min-width: 45px; text-align: right; }
+  .browse-play { padding: 4px 10px; font-size: 11px; }
+  .user-card { cursor: pointer; }
+  .user-card.playing { border-color: #00ff88; background: #081a0e; }
 
   .heat-bar { width: 50px; height: 5px; background: #1a1a2e; border-radius: 3px; overflow: hidden; display: inline-block; vertical-align: middle; }
   .heat-fill { height: 100%; border-radius: 3px; }
@@ -464,7 +628,10 @@ HTML_PAGE = r"""<!DOCTYPE html>
     background: #081a0e; border: 1px solid #00ff88; border-radius: 8px;
     padding: 16px; margin-bottom: 16px;
   }
-  .np-question { font-size: 16px; color: #00ff88; margin-bottom: 8px; }
+  .np-header { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 8px; }
+  .np-question { font-size: 16px; color: #00ff88; flex: 1; }
+  .np-link { color: #00aaff; text-decoration: none; font-size: 14px; padding: 4px 10px; border: 1px solid #00aaff44; border-radius: 4px; white-space: nowrap; transition: all 0.15s; }
+  .np-link:hover { background: #00aaff22; border-color: #00aaff; color: #fff; }
   .np-mood { font-size: 22px; font-weight: bold; margin: 8px 0; }
   .np-mood.bullish { color: #00ff88; }
   .np-mood.bearish { color: #ff6644; }
@@ -511,7 +678,10 @@ HTML_PAGE = r"""<!DOCTYPE html>
 
   <!-- Now Playing -->
   <div class="now-playing" id="np" style="display:none">
-    <div class="np-question" id="np-question"></div>
+    <div class="np-header">
+      <div class="np-question" id="np-question"></div>
+      <a class="np-link" id="np-link" href="#" target="_blank" rel="noopener">View on Polymarket &#x2197;</a>
+    </div>
     <div class="np-mood" id="np-mood"></div>
     <div class="osc-grid" id="np-osc"></div>
   </div>
@@ -534,8 +704,25 @@ HTML_PAGE = r"""<!DOCTYPE html>
 
   <!-- Markets -->
   <div class="panel">
-    <h2>Markets <span style="color:#555; font-weight:normal; font-size:12px;">click to play</span></h2>
-    <div id="markets"></div>
+    <h2>Markets</h2>
+    <div class="url-row">
+      <input type="text" id="url-input" placeholder="Paste Polymarket URL to play..." onkeydown="if(event.key==='Enter')playUrl()">
+      <button onclick="playUrl()">Play URL</button>
+    </div>
+    <div class="url-status" id="url-status"></div>
+
+    <div id="user-markets-section" style="display:none;">
+      <div class="row" style="margin-bottom:6px;">
+        <span style="color:#666; font-size:12px;">Your Markets</span>
+        <button style="margin-left:auto; padding:3px 8px; font-size:11px; border-color:#444; color:#666;" onclick="clearUserMarkets()">Clear</button>
+      </div>
+      <div id="user-markets"></div>
+    </div>
+
+    <div style="margin-top:14px;">
+      <div id="browse-tabs" class="browse-tabs"></div>
+      <div id="browse-results" style="margin-top:8px;"></div>
+    </div>
   </div>
 
   <div id="log"></div>
@@ -543,6 +730,9 @@ HTML_PAGE = r"""<!DOCTYPE html>
 
 <script>
 let lastStatus = null;
+let userMarkets = [];
+let browseCache = {};
+let activeTab = null;
 
 function log(msg) {
   const el = document.getElementById('log');
@@ -564,118 +754,226 @@ async function startAudio() {
   const r = await api('/api/start', 'POST', {track});
   r.ok ? log('Audio on, port ' + r.osc_port) : log('ERR: ' + r.error);
 }
-
 async function stopAudio() {
   const r = await api('/api/stop', 'POST');
   r.ok ? log('Audio stopped') : log('ERR: ' + r.error);
 }
-
 async function changeTrack() {
   const track = document.getElementById('track-select').value;
   const r = await api('/api/track', 'POST', {track});
   r.ok ? log('Track: ' + r.track) : log('ERR: ' + r.error);
 }
-
 async function testSound(type) {
   log('Test: ' + type);
   const r = await api('/api/test-sound', 'POST', {type});
   r.ok ? log('Test sound: ' + type) : log('ERR: ' + r.error);
 }
-
 async function killAll() {
   const r = await api('/api/kill-all', 'POST');
   r.ok ? log(r.message) : log('ERR: ' + r.error);
 }
-
-async function playMarket(slug) {
-  log('Playing: ' + slug);
-  const r = await api('/api/pin', 'POST', {slug});
-  r.ok ? log('Now playing: ' + slug) : log('ERR: ' + r.error);
-}
-
 async function setMode(auto) {
   const r = await api('/api/autonomous', 'POST', {enabled: auto});
   r.ok ? log(auto ? 'Autonomous mode' : 'Manual mode') : log('ERR: ' + r.error);
 }
 
-function heatColor(h) {
-  if (h > 0.8) return '#ff4444';
-  if (h > 0.5) return '#ffaa00';
-  return '#00aaff';
+// ── URL play ──
+async function playUrl() {
+  const input = document.getElementById('url-input');
+  const status = document.getElementById('url-status');
+  const url = input.value.trim();
+  if (!url) return;
+  status.textContent = 'Loading...';
+  status.style.color = '#00aaff';
+  try {
+    const r = await api('/api/play-url', 'POST', {url});
+    if (r.ok) {
+      status.textContent = '';
+      input.value = '';
+      addUserMarket({slug: r.pinned, question: r.question});
+      log('Playing URL: ' + r.question);
+    } else {
+      status.textContent = 'Error: ' + r.error;
+      status.style.color = '#ff4444';
+    }
+  } catch(e) {
+    status.textContent = 'Failed to load URL';
+    status.style.color = '#ff4444';
+  }
 }
 
+// ── Play from browse or user list ──
+async function playMarket(slug, question, eventSlug) {
+  const r = await api('/api/pin', 'POST', {slug});
+  if (r.ok) {
+    addUserMarket({slug, question, event_slug: eventSlug});
+    log('Playing: ' + (question || slug));
+  } else {
+    log('ERR: ' + r.error);
+  }
+}
+
+async function playBrowseMarket(slug, question, eventSlug) {
+  const r = await api('/api/play-url', 'POST', {url: 'https://polymarket.com/event/' + (eventSlug || slug)});
+  if (r.ok) {
+    addUserMarket({slug: r.pinned, question: r.question, event_slug: eventSlug});
+    log('Playing: ' + r.question);
+  } else {
+    log('ERR: ' + r.error);
+  }
+}
+
+// ── User markets ──
+function addUserMarket(m) {
+  if (!userMarkets.find(u => u.slug === m.slug)) {
+    userMarkets.unshift(m);
+  }
+  renderUserMarkets();
+}
+function clearUserMarkets() {
+  userMarkets = [];
+  renderUserMarkets();
+}
+function renderUserMarkets() {
+  const section = document.getElementById('user-markets-section');
+  const container = document.getElementById('user-markets');
+  if (!userMarkets.length) { section.style.display = 'none'; return; }
+  section.style.display = '';
+  const playing = lastStatus && lastStatus.pinned;
+  container.innerHTML = userMarkets.map(m => {
+    const isPlaying = playing === m.slug;
+    const cls = isPlaying ? 'browse-card user-card playing' : 'browse-card user-card';
+    const slug = (m.slug||'').replace(/'/g, "\\'");
+    const q = (m.question||'').replace(/'/g, "\\'");
+    const es = (m.event_slug||m.slug||'').replace(/'/g, "\\'");
+    const link = es ? 'https://polymarket.com/event/' + es : '';
+    return '<div class="' + cls + '" onclick="playMarket(\'' + slug + '\',\'' + q + '\',\'' + es + '\')">'
+      + '<div class="browse-body">'
+      + '<div class="browse-question">' + (m.question||m.slug).substring(0,70) + '</div>'
+      + '</div>'
+      + (link ? '<a class="market-link" href="' + link + '" target="_blank" rel="noopener" onclick="event.stopPropagation();">View &#x2197;</a>' : '')
+      + (isPlaying ? '<div class="market-play-badge">PLAYING</div>' : '')
+      + '</div>';
+  }).join('');
+}
+
+// ── Browse tabs ──
+async function initBrowse() {
+  const r = await api('/api/categories');
+  const tabs = document.getElementById('browse-tabs');
+  tabs.innerHTML = (r.categories || []).map(c => {
+    const tid = c.tag_id === null ? 'null' : c.tag_id;
+    const sort = c.sort || 'volume';
+    return '<button class="browse-tab" data-tag="' + tid + '" data-sort="' + sort + '" onclick="browseTab(this)">' + c.label + '</button>';
+  }).join('');
+  // Auto-click first tab
+  const first = tabs.querySelector('.browse-tab');
+  if (first) browseTab(first);
+}
+
+async function browseTab(btn) {
+  document.querySelectorAll('.browse-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const tagId = btn.dataset.tag;
+  const sort = btn.dataset.sort;
+  const cacheKey = tagId + ':' + sort;
+  activeTab = cacheKey;
+
+  if (browseCache[cacheKey]) {
+    renderBrowse(browseCache[cacheKey]);
+    return;
+  }
+
+  document.getElementById('browse-results').innerHTML = '<div class="browse-loading">Loading...</div>';
+  const params = new URLSearchParams({sort, limit: '10'});
+  if (tagId !== 'null') params.set('tag_id', tagId);
+  try {
+    const r = await api('/api/browse?' + params);
+    if (r.ok && activeTab === cacheKey) {
+      browseCache[cacheKey] = r.markets;
+      renderBrowse(r.markets);
+    }
+  } catch(e) {
+    document.getElementById('browse-results').innerHTML = '<div class="browse-loading">Failed to load</div>';
+  }
+}
+
+function renderBrowse(markets) {
+  const el = document.getElementById('browse-results');
+  if (!markets.length) {
+    el.innerHTML = '<div class="browse-loading">No markets found</div>';
+    return;
+  }
+  el.innerHTML = markets.map(m => {
+    const slug = (m.slug||'').replace(/'/g, "\\'");
+    const q = (m.question||'').replace(/'/g, "\\'");
+    const es = (m.event_slug||m.slug||'').replace(/'/g, "\\'");
+    const link = es ? 'https://polymarket.com/event/' + es : '';
+    const pricePct = m.price !== null ? (m.price * 100).toFixed(0) + '%' : '';
+    const vol = m.volume > 0 ? '$' + (m.volume/1000).toFixed(0) + 'k' : '';
+    return '<div class="browse-card">'
+      + '<div class="browse-body">'
+      + '<div class="browse-question">' + (m.question||'').substring(0,65) + '</div>'
+      + '<div class="browse-meta">' + vol + '</div>'
+      + '</div>'
+      + (pricePct ? '<div class="browse-price">' + pricePct + '</div>' : '')
+      + (link ? '<a class="market-link" href="' + link + '" target="_blank" rel="noopener" onclick="event.stopPropagation();">View &#x2197;</a>' : '')
+      + '<button class="browse-play" onclick="event.stopPropagation();playBrowseMarket(\'' + slug + '\',\'' + q + '\',\'' + es + '\')">Play</button>'
+      + '</div>';
+  }).join('');
+}
+
+// ── Status polling ──
 function updateUI(s) {
-  // Audio
   const ad = document.getElementById('audio-dot');
   ad.className = 'dot ' + (s.audio_running ? 'dot-on' : 'dot-off');
   document.getElementById('audio-label').textContent = s.audio_running ? 'Playing: ' + s.current_track : 'Stopped';
   document.getElementById('test-row').style.display = s.audio_running ? '' : 'none';
 
-  // Track dropdown
   const sel = document.getElementById('track-select');
   if (sel.options.length === 0 && s.tracks) {
     s.tracks.forEach(t => sel.add(new Option(t, t)));
   }
 
-  // Feed
   document.getElementById('feed-dot').className = 'dot ' + (s.feed_running ? 'dot-on' : 'dot-off');
   document.getElementById('feed-label').textContent = s.feed_running ? 'Feed: connected' : 'Feed: disconnected';
   document.getElementById('event-count').textContent = s.event_rate ? s.event_rate + ' events' : '';
 
-  // Mode buttons
   document.getElementById('btn-manual').className = s.autonomous ? '' : 'active';
   document.getElementById('btn-auto').className = s.autonomous ? 'active-blue' : '';
 
-  // Now playing
   const np = document.getElementById('np');
   if (s.current_market) {
     np.style.display = '';
     document.getElementById('np-question').textContent = s.current_market.question;
+    const npLink = document.getElementById('np-link');
+    const npEvtSlug = s.current_market.event_slug || s.current_market.slug || '';
+    if (npEvtSlug) {
+      npLink.href = 'https://polymarket.com/event/' + npEvtSlug;
+      npLink.style.display = '';
+    } else { npLink.style.display = 'none'; }
     const mood = document.getElementById('np-mood');
     const pct = (s.current_market.price * 100).toFixed(1);
     mood.textContent = s.current_market.tone.toUpperCase() + '  ' + pct + '%';
     mood.className = 'np-mood ' + s.current_market.tone;
-
     if (s.current_market.osc) {
       const o = s.current_market.osc;
       document.getElementById('np-osc').innerHTML = [
         ['AMP', o.amp], ['CUTOFF', o.cutoff], ['REVERB', o.reverb],
         ['DENSITY', o.density], ['TENSION', o.tension], ['HEAT', s.current_market.heat]
-      ].map(([l,v]) =>
-        '<div class="osc-cell"><div class="lbl">'+l+'</div><div class="val">'+v+'</div></div>'
-      ).join('');
+      ].map(([l,v]) => '<div class="osc-cell"><div class="lbl">'+l+'</div><div class="val">'+v+'</div></div>').join('');
     }
-  } else {
-    np.style.display = 'none';
-  }
+  } else { np.style.display = 'none'; }
 
-  // Market list
-  const ml = document.getElementById('markets');
-  if (s.top_markets && s.top_markets.length) {
-    ml.innerHTML = s.top_markets.map((m, i) => {
-      const pct = Math.round(m.heat * 100);
-      const col = heatColor(m.heat);
-      const cls = m.playing ? 'market-card playing' : 'market-card';
-      const slug = m.slug.replace(/'/g, "\\'");
-      return '<div class="' + cls + '" onclick="playMarket(\'' + slug + '\')">'
-        + '<div class="market-rank">' + (i+1) + '</div>'
-        + '<div class="market-body">'
-        + '<div class="market-question">' + m.question.substring(0, 70) + '</div>'
-        + '<div class="market-meta">'
-        + '<span><span class="heat-bar"><span class="heat-fill" style="width:'+pct+'%;background:'+col+'"></span></span> '+m.heat.toFixed(2)+'</span>'
-        + '<span>$' + (m.volume/1000).toFixed(0) + 'k</span>'
-        + '</div></div>'
-        + (m.playing ? '<div class="market-play-badge">PLAYING</div>' : '')
-        + '</div>';
-    }).join('');
-  }
+  renderUserMarkets();
 }
 
 setInterval(async () => {
   try { const s = await api('/api/status'); updateUI(s); lastStatus = s; } catch(e) {}
 }, 1500);
 
-log('Ready. Start audio, then click a market to play.');
+initBrowse();
+log('Ready. Start audio, then pick a market to play.');
 </script>
 </body>
 </html>
@@ -701,7 +999,7 @@ async def on_startup(app):
 
 async def on_shutdown(app):
     """Clean shutdown."""
-    for task in [state._feed_task, state._dj_task, state._push_task]:
+    for task in [state._feed_task, state._dj_task, state._push_task, state._price_task]:
         if task:
             task.cancel()
     if state.sonic:
@@ -721,9 +1019,12 @@ def create_app():
     app.router.add_post("/api/stop", handle_stop_audio)
     app.router.add_post("/api/track", handle_change_track)
     app.router.add_post("/api/pin", handle_pin_market)
+    app.router.add_post("/api/play-url", handle_play_url)
     app.router.add_post("/api/unpin", handle_unpin)
     app.router.add_post("/api/autonomous", handle_autonomous)
     app.router.add_post("/api/kill-all", handle_kill_all)
+    app.router.add_get("/api/browse", handle_browse)
+    app.router.add_get("/api/categories", handle_categories)
 
     return app
 
