@@ -218,6 +218,45 @@ async def handle_start_audio(request):
         return web.json_response({"error": str(e)}, status=500)
 
 
+async def handle_test_sound(request):
+    """Play a test sound to verify audio is working."""
+    if not state.sonic or not state.audio_running:
+        return web.json_response({"error": "Audio not running"}, status=400)
+
+    data = await request.json() if request.content_length else {}
+    test_type = data.get("type", "beep")
+
+    if test_type == "beep":
+        await state.sonic.run_code("""
+use_synth :beep
+play :c5, amp: 2, release: 0.5
+sleep 0.3
+play :e5, amp: 2, release: 0.5
+sleep 0.3
+play :g5, amp: 2, release: 0.5
+""")
+    elif test_type == "kick":
+        await state.sonic.run_code("""
+3.times do
+  sample :bd_haus, amp: 2
+  sleep 0.5
+end
+""")
+    elif test_type == "all_layers":
+        # Force all layers on via OSC
+        from pythonosc import udp_client
+        osc = udp_client.SimpleUDPClient("127.0.0.1", state.sonic.osc_cues_port)
+        for layer in ["kick", "bass", "pad", "lead", "atmos"]:
+            osc.send_message(f"/btc/{layer}/amp", 1.0)
+            osc.send_message(f"/btc/{layer}/cutoff", 85.0)
+            osc.send_message(f"/btc/{layer}/reverb", 0.4)
+            osc.send_message(f"/btc/{layer}/density", 0.6)
+            osc.send_message(f"/btc/{layer}/tone", 1)
+            osc.send_message(f"/btc/{layer}/tension", 0.2)
+
+    return web.json_response({"ok": True, "test": test_type})
+
+
 async def handle_stop_audio(request):
     """Stop Sonic Pi."""
     if not state.audio_running:
@@ -417,6 +456,12 @@ HTML_PAGE = r"""<!DOCTYPE html>
       <button onclick="changeTrack()">Switch Track</button>
       <button class="danger" onclick="killAll()" style="margin-left:auto;">Kill All</button>
     </div>
+    <div class="row" id="test-row" style="display:none;">
+      <span style="color:#555;">Test:</span>
+      <button onclick="testSound('beep')">Beep</button>
+      <button onclick="testSound('kick')">Kick</button>
+      <button onclick="testSound('all_layers')">All Layers On</button>
+    </div>
   </div>
 
   <!-- Now Playing -->
@@ -486,6 +531,12 @@ async function changeTrack() {
   r.ok ? log('Track: ' + r.track) : log('ERR: ' + r.error);
 }
 
+async function testSound(type) {
+  log('Test: ' + type);
+  const r = await api('/api/test-sound', 'POST', {type});
+  r.ok ? log('Test sound: ' + type) : log('ERR: ' + r.error);
+}
+
 async function killAll() {
   const r = await api('/api/kill-all', 'POST');
   r.ok ? log(r.message) : log('ERR: ' + r.error);
@@ -513,6 +564,7 @@ function updateUI(s) {
   const ad = document.getElementById('audio-dot');
   ad.className = 'dot ' + (s.audio_running ? 'dot-on' : 'dot-off');
   document.getElementById('audio-label').textContent = s.audio_running ? 'Playing: ' + s.current_track : 'Stopped';
+  document.getElementById('test-row').style.display = s.audio_running ? '' : 'none';
 
   // Track dropdown
   const sel = document.getElementById('track-select');
@@ -620,6 +672,7 @@ def create_app():
     app.router.add_get("/", handle_index)
     app.router.add_get("/api/status", handle_status)
     app.router.add_post("/api/start", handle_start_audio)
+    app.router.add_post("/api/test-sound", handle_test_sound)
     app.router.add_post("/api/stop", handle_stop_audio)
     app.router.add_post("/api/track", handle_change_track)
     app.router.add_post("/api/pin", handle_pin_market)
