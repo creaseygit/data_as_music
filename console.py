@@ -165,6 +165,16 @@ async def status_loop(dj, scorer, interval=15.0):
 
 
 async def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Polymarket Bar — Debug Console")
+    parser.add_argument("--track", default="sonic_pi/deep_bass_polymarket.rb",
+                        help="Path to Sonic Pi .rb track file")
+    parser.add_argument("--no-audio", action="store_true",
+                        help="Skip Sonic Pi boot (data + OSC only)")
+    parser.add_argument("--gui", action="store_true",
+                        help="Use Sonic Pi GUI instead of headless (send OSC to port 4560)")
+    args = parser.parse_args()
+
     print("""
     +==========================================+
     |    THE POLYMARKET BAR -- DEBUG CONSOLE    |
@@ -172,10 +182,43 @@ async def main():
     +==========================================+
     """, flush=True)
     print(f"[INIT {ts()}] Starting up...", flush=True)
-    print(f"[INIT {ts()}] OSC target: 127.0.0.1:4560", flush=True)
     print(f"[INIT {ts()}] Rescore interval: {RESCORE_INTERVAL}s", flush=True)
 
+    # ── Boot Sonic Pi headless ────────────────────────────
+    sonic = None
+    if not args.no_audio and not args.gui:
+        from sonic_pi.headless import SonicPiHeadless
+        sonic = SonicPiHeadless()
+        try:
+            await sonic.boot()
+            # Update OSC port to match the headless instance's cues port
+            from config import OSC_IP
+            osc_port = sonic.osc_cues_port
+            print(f"[INIT {ts()}] OSC target: {OSC_IP}:{osc_port} (headless)", flush=True)
+
+            # Load the track
+            track_path = args.track
+            print(f"[INIT {ts()}] Loading track: {track_path}", flush=True)
+            await sonic.run_file(track_path)
+            print(f"[INIT {ts()}] Track loaded and running.", flush=True)
+        except Exception as e:
+            print(f"[INIT {ts()}] Sonic Pi headless boot failed: {e}", flush=True)
+            print(f"[INIT {ts()}] Continuing without audio (data + OSC only)", flush=True)
+            sonic = None
+            osc_port = 4560
+    elif args.gui:
+        osc_port = 4560
+        print(f"[INIT {ts()}] GUI mode: sending OSC to 127.0.0.1:{osc_port}", flush=True)
+        print(f"[INIT {ts()}] Make sure Sonic Pi is open with the track loaded.", flush=True)
+    else:
+        osc_port = 4560
+        print(f"[INIT {ts()}] No audio mode: data + OSC only", flush=True)
+
     scorer = LoggingScorer()
+    # Override OSC port if headless
+    if sonic and sonic.osc_cues_port:
+        import config
+        config.OSC_PORT = sonic.osc_cues_port
     osc = LoggingOSCBridge(scorer)
 
     import polymarket.gamma as gamma_module
@@ -185,12 +228,16 @@ async def main():
 
     print(f"[INIT {ts()}] Fetching initial markets...", flush=True)
 
-    await asyncio.gather(
-        feed.connect(),
-        dj.run(),
-        param_push_loop(dj, interval=5.0),
-        status_loop(dj, scorer, interval=15.0),
-    )
+    try:
+        await asyncio.gather(
+            feed.connect(),
+            dj.run(),
+            param_push_loop(dj, interval=5.0),
+            status_loop(dj, scorer, interval=15.0),
+        )
+    finally:
+        if sonic:
+            await sonic.shutdown()
 
 
 if __name__ == "__main__":
