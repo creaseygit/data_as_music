@@ -28,9 +28,9 @@ from aiohttp import web
 from polymarket.scorer import MarketScorer
 from polymarket.websocket import PolymarketFeed
 from mixer.mixer import AutonomousDJ
-from osc.bridge import OSCBridge, SLOT_OSC_MAP, _scale
+from osc.bridge import OSCBridge, _scale
 from sonic_pi.headless import SonicPiHeadless
-from config import RESCORE_INTERVAL, LAYER_INSTRUMENTS, BROWSE_CATEGORIES
+from config import RESCORE_INTERVAL, BROWSE_CATEGORIES
 
 
 # ── Global state ──────────────────────────────────────────
@@ -53,9 +53,7 @@ class AppState:
         self._push_task = None
         self._price_task = None
 
-        # Smoothing state for per-layer param differentiation
-        self._smooth_density = 0.5
-        self._smooth_cutoff = 80.0
+        # Event detection state
         self._prev_heat = 0.0
         self._prev_price = 0.5
         self._current_tone = 1
@@ -98,21 +96,16 @@ class AppState:
                 "tone": "bullish" if self._current_tone == 1 else "bearish",
             }
 
-            # OSC params being sent (base values — layers differ)
+            # Raw data values being pushed to Sonic Pi
             if aid:
-                amp = _scale(heat, 0, 1, 0.1, 0.8)
-                cutoff = _scale(display_price, 0, 1, 60, 115)
-                reverb = _scale(vel, 0, 1, 0.1, 0.85)
-                density = _scale(rate, 0, 1, 0.1, 1.0)
-                tension = _scale(ask - bid, 0, 0.3, 0.0, 1.0)
-                swing = tension * 0.06
-                market_info["osc"] = {
-                    "amp": round(amp, 2),
-                    "cutoff": round(cutoff, 1),
-                    "reverb": round(reverb, 2),
-                    "density": round(density, 2),
-                    "tension": round(tension, 2),
-                    "swing": round(swing, 3),
+                spread_val = ask - bid
+                market_info["data"] = {
+                    "heat": round(heat, 3),
+                    "price": round(display_price, 4),
+                    "velocity": round(vel, 4),
+                    "trade_rate": round(rate, 3),
+                    "spread": round(spread_val, 4),
+                    "tone": self._current_tone,
                 }
 
         return {
@@ -166,7 +159,7 @@ async def dj_loop():
 
 
 async def param_push_loop(interval=3.0):
-    """Push per-layer params with differentiation, smoothing, and event detection."""
+    """Push raw normalized market data to Sonic Pi. Tracks interpret it themselves."""
     try:
         while True:
             await asyncio.sleep(interval)
@@ -186,12 +179,12 @@ async def param_push_loop(interval=3.0):
                     ws_mid = (bid + ask) / 2.0
                 last_price = ws_mid if ws_mid is not None else (api_price if api_price is not None else 0.5)
 
-                # Base values
-                amp = _scale(heat, 0, 1, 0.1, 0.8)
-                cutoff = _scale(last_price, 0, 1, 60, 115)
-                reverb = _scale(vel, 0, 1, 0.1, 0.85)
-                density = _scale(rate, 0, 1, 0.1, 1.0)
-                tension = _scale(spread, 0, 0.3, 0.0, 1.0)
+                # Normalize to 0-1 ranges
+                heat_n = max(0.0, min(1.0, heat))
+                price_n = max(0.0, min(1.0, last_price))
+                velocity_n = max(0.0, min(1.0, vel))
+                trade_rate_n = max(0.0, min(1.0, rate))
+                spread_n = _scale(spread, 0, 0.3, 0.0, 1.0)
 
                 # Tone with hysteresis — prevent flickering near 0.50
                 if state._current_tone == 1 and last_price < 0.45:
@@ -199,14 +192,6 @@ async def param_push_loop(interval=3.0):
                 elif state._current_tone == 0 and last_price > 0.55:
                     state._current_tone = 1
                 tone = state._current_tone
-
-                # EMA smoothing for atmos (slow-reacting layer)
-                alpha = 0.15
-                state._smooth_density = state._smooth_density * (1 - alpha) + density * alpha
-                state._smooth_cutoff = state._smooth_cutoff * (1 - alpha) + cutoff * alpha
-
-                # Swing derived from tension (0.0 – 0.06)
-                swing = tension * 0.06
 
                 # ── Event detection ──────────────────────────
                 heat_delta = abs(heat - state._prev_heat)
@@ -224,73 +209,21 @@ async def param_push_loop(interval=3.0):
 
                 # Log data state every push
                 tone_str = "major" if tone == 1 else "minor"
-                print(f"[PARAMS] price={last_price:.4f} heat={heat:.3f} vel={vel:.4f} rate={rate:.3f} spread={spread:.4f} tone={tone_str}", flush=True)
+                print(f"[DATA] price={price_n:.4f} heat={heat_n:.3f} vel={velocity_n:.4f} rate={trade_rate_n:.3f} spread={spread_n:.4f} tone={tone_str}", flush=True)
 
-                # ── Per-layer differentiation ────────────────
-                layer_params = {
-                    "kick": {
-                        "amp": amp,
-                        "cutoff": max(cutoff - 20, 60),
-                        "reverb": reverb * 0.3,
-                        "density": density,
-                        "tone": tone,
-                        "tension": tension,
-                        "swing": swing,
-                    },
-                    "bass": {
-                        "amp": amp * 0.9,
-                        "cutoff": max(cutoff - 15, 60),
-                        "reverb": reverb * 0.2,
-                        "density": density,
-                        "tone": tone,
-                        "tension": tension,
-                        "swing": 0.0,
-                    },
-                    "pad": {
-                        "amp": _scale(amp, 0.1, 0.8, 0.3, 0.7),
-                        "cutoff": cutoff,
-                        "reverb": min(reverb * 1.3, 0.85),
-                        "density": max(1.0 - (density * 0.5), 0.3),
-                        "tone": tone,
-                        "tension": tension,
-                        "swing": 0.0,
-                    },
-                    "lead": {
-                        "amp": amp * 0.8 if density > 0.3 else 0.0,
-                        "cutoff": min(cutoff + 10, 115),
-                        "reverb": reverb,
-                        "density": max(density - 0.15, 0.1),
-                        "tone": tone,
-                        "tension": tension,
-                        "swing": 0.0,
-                    },
-                    "atmos": {
-                        "amp": amp * 0.5,
-                        "cutoff": state._smooth_cutoff,
-                        "reverb": min(reverb * 1.5, 0.85),
-                        "density": state._smooth_density,
-                        "tone": tone,
-                        "tension": tension * 0.7,
-                        "swing": 0.0,
-                    },
-                }
-
+                # ── Push raw data to Sonic Pi ────────────────
                 code = event_code
-                for layer, params in layer_params.items():
-                    parts = [f"set :{layer}_{k}, {v:.3f}" for k, v in params.items()]
-                    code += "; ".join(parts) + "\n"
+                code += f"set :heat, {heat_n:.4f}\n"
+                code += f"set :price, {price_n:.4f}\n"
+                code += f"set :velocity, {velocity_n:.4f}\n"
+                code += f"set :trade_rate, {trade_rate_n:.4f}\n"
+                code += f"set :spread, {spread_n:.4f}\n"
+                code += f"set :tone, {tone}\n"
 
                 try:
                     await state.sonic.run_code(code)
                 except Exception:
                     pass
-
-                # Also push via OSC for any sync listeners
-                for slot in LAYER_INSTRUMENTS:
-                    try:
-                        state.osc.push_market_params(slot, aid)
-                    except Exception:
-                        pass
     except asyncio.CancelledError:
         pass
 
@@ -341,7 +274,7 @@ async def handle_start_audio(request):
         return web.json_response({"error": "Audio already running"}, status=400)
 
     data = await request.json() if request.content_length else {}
-    track_name = data.get("track", "deep_bass_polymarket")
+    track_name = data.get("track", "midnight_ticker")
 
     if track_name not in state.tracks:
         return web.json_response({"error": f"Unknown track: {track_name}",
@@ -402,27 +335,15 @@ play :g5, amp: 2, release: 0.5
 end
 """)
     elif test_type == "all_layers":
-        # Set layer state directly via run_code AND send OSC
+        # Push test data values — track interprets them
         await state.sonic.run_code("""
-[:kick, :bass, :pad, :lead, :atmos].each do |layer|
-  set :"#{layer}_amp", 1.0
-  set :"#{layer}_cutoff", 85.0
-  set :"#{layer}_reverb", 0.4
-  set :"#{layer}_density", 0.6
-  set :"#{layer}_tone", 1
-  set :"#{layer}_tension", 0.2
-end
+set :heat, 0.6
+set :price, 0.65
+set :velocity, 0.3
+set :trade_rate, 0.5
+set :spread, 0.2
+set :tone, 1
 """)
-        # Also send via OSC for any listeners
-        from pythonosc import udp_client
-        osc = udp_client.SimpleUDPClient("127.0.0.1", state.sonic.osc_cues_port)
-        for layer in ["kick", "bass", "pad", "lead", "atmos"]:
-            osc.send_message(f"/btc/{layer}/amp", 1.0)
-            osc.send_message(f"/btc/{layer}/cutoff", 85.0)
-            osc.send_message(f"/btc/{layer}/reverb", 0.4)
-            osc.send_message(f"/btc/{layer}/density", 0.6)
-            osc.send_message(f"/btc/{layer}/tone", 1)
-            osc.send_message(f"/btc/{layer}/tension", 0.2)
 
     return web.json_response({"ok": True, "test": test_type})
 
@@ -1058,11 +979,11 @@ function updateUI(s) {
     const pct = (s.current_market.price * 100).toFixed(1);
     mood.textContent = s.current_market.tone.toUpperCase() + '  ' + pct + '%';
     mood.className = 'np-mood ' + s.current_market.tone;
-    if (s.current_market.osc) {
-      const o = s.current_market.osc;
+    if (s.current_market.data) {
+      const d = s.current_market.data;
       document.getElementById('np-osc').innerHTML = [
-        ['AMP', o.amp], ['CUTOFF', o.cutoff], ['REVERB', o.reverb],
-        ['DENSITY', o.density], ['TENSION', o.tension], ['HEAT', s.current_market.heat]
+        ['HEAT', d.heat], ['PRICE', d.price], ['VELOCITY', d.velocity],
+        ['TRADE RATE', d.trade_rate], ['SPREAD', d.spread], ['TONE', d.tone ? 'MAJ' : 'MIN']
       ].map(([l,v]) => '<div class="osc-cell"><div class="lbl">'+l+'</div><div class="val">'+v+'</div></div>').join('');
     }
   } else { np.style.display = 'none'; }

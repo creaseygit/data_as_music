@@ -12,9 +12,6 @@ MIN_ACTIVE_LAYERS  = 2           # floor — always keep something playing
 SWAP_THRESHOLD     = 0.25        # score delta before triggering a swap
 FADE_BARS          = 8           # crossfade duration in musical bars
 
-# ── Instruments (one per layer slot) ─────────────────────
-LAYER_INSTRUMENTS  = ["kick", "bass", "pad", "lead", "atmosphere"]
-
 # ── Scoring weights ──────────────────────────────────────
 WEIGHT_PRICE_VELOCITY = 0.35
 WEIGHT_TRADE_RATE     = 0.40

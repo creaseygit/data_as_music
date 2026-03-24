@@ -1,7 +1,5 @@
 import asyncio
-from config import (
-    LAYER_INSTRUMENTS, RESCORE_INTERVAL, SWAP_THRESHOLD,
-)
+from config import RESCORE_INTERVAL, SWAP_THRESHOLD
 
 
 class AutonomousDJ:
@@ -23,7 +21,6 @@ class AutonomousDJ:
 
         self.current_market = None
         self.current_asset  = None
-        self.layers     = {}
         self.all_markets = []
 
         # Mode: False = manual (default), True = autonomous
@@ -42,7 +39,7 @@ class AutonomousDJ:
         )
         if market and market["asset_ids"]:
             aid = self._primary_asset(market)
-            self._switch_market_sync(aid, market)
+            self._switch_market(aid, market)
         print(f"[DJ] Playing: {slug}", flush=True)
 
     def unpin(self):
@@ -68,11 +65,7 @@ class AutonomousDJ:
             await self._refresh_markets()
             if self.autonomous:
                 await self._auto_mix()
-            elif self.current_asset:
-                # Manual mode — just push updated params
-                self._push_all_layers()
             self._log_now_playing()
-            self.osc.write_now_playing(self.layers)
 
     async def _refresh_markets(self):
         """Pull fresh market list from Gamma, update scorer volumes."""
@@ -124,20 +117,18 @@ class AutonomousDJ:
         target_market = self._find_market(target_asset)
 
         if self.current_asset == target_asset:
-            self._push_all_layers()
             return
 
         if self.current_asset:
             current_heat = self.scorer.heat(self.current_asset)
             target_heat = self.scorer.heat(target_asset)
             if target_heat - current_heat < SWAP_THRESHOLD:
-                self._push_all_layers()
                 return
 
-        self._switch_market_sync(target_asset, target_market)
+        self._switch_market(target_asset, target_market)
 
-    def _switch_market_sync(self, asset_id: str, market: dict | None):
-        """Switch all layers to a new market."""
+    def _switch_market(self, asset_id: str, market: dict | None):
+        """Switch to a new market."""
         question = market["question"] if market else asset_id[:16]
 
         if self.current_market:
@@ -152,21 +143,6 @@ class AutonomousDJ:
         # Seed scorer with API prices so display is correct immediately
         if market:
             self._seed_prices(market)
-
-        for slot in LAYER_INSTRUMENTS:
-            was_playing = slot in self.layers
-            self.layers[slot] = {
-                "asset_id": asset_id,
-                "question": question,
-                "amp": 1.0,
-            }
-            if was_playing:
-                self.osc.send_layer_command(slot, asset_id, "crossfade")
-            else:
-                self.osc.send_layer_command(slot, asset_id, "fade_in")
-
-        # Push params immediately so music reacts now
-        self._push_all_layers()
 
     @staticmethod
     def _primary_asset(market: dict) -> str:
@@ -196,17 +172,10 @@ class AutonomousDJ:
                     self.scorer.on_price_change(aid, price)
                     print(f"[DJ] Seeded price {aid[:8]}... = {price:.4f}", flush=True)
 
-    def _push_all_layers(self):
-        if not self.current_asset:
-            return
-        for slot in LAYER_INSTRUMENTS:
-            self.osc.push_market_params(slot, self.current_asset)
-
     def _enter_ambient_mode(self):
         print("[DJ] Ambient mode -- no hot markets", flush=True)
         self.current_market = None
         self.current_asset = None
-        self.layers.clear()
         self.osc.send_global("ambient_mode", 1)
 
     def _find_market(self, asset_id: str) -> dict | None:
@@ -234,5 +203,4 @@ class AutonomousDJ:
             print("[DJ] Current market resolved", flush=True)
             self.current_market = None
             self.current_asset = None
-            self.layers.clear()
             self.pinned_slug = None
