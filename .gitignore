@@ -41,3 +41,6 @@ sonic_pi/log/
 *.flv
 *.mkv
 *.mp4
+
+# Mastering pipeline output
+mastering_output/
