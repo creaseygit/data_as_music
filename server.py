@@ -58,6 +58,7 @@ class AppState:
         # Event detection state
         self._prev_heat = 0.0
         self._prev_price = 0.5
+        self._prev_asset = None
         self._current_tone = 1
 
         # Sandbox mode — manual data control, no market data push
@@ -219,17 +220,27 @@ async def param_push_loop(interval=3.0):
                     state._current_tone = 1
                 tone = state._current_tone
 
+                # ── Rotation detection ─────────────────────────
+                is_rotation = (aid != state._prev_asset)
+                if is_rotation:
+                    print(f"[DATA] Market rotated to {aid[:8]}…, suppressing events this cycle", flush=True)
+                    state._prev_asset = aid
+                    state._prev_heat = heat
+                    state._prev_price = last_price
+                    state._current_tone = 1 if last_price > 0.5 else 0
+
                 # ── Event detection ──────────────────────────
-                heat_delta = abs(heat - state._prev_heat)
-                price_delta = abs(last_price - state._prev_price)
                 event_code = ""
-                if heat_delta > 0.15:
-                    event_code += "set :event_spike, 1\n"
-                if price_delta > 0.03:
-                    direction = 1 if last_price > state._prev_price else -1
-                    event_code += f"set :event_price_move, {direction}\n"
-                if event_code:
-                    print(f"[EVENT] heat_delta={heat_delta:.3f} price_delta={price_delta:.4f}", flush=True)
+                if not is_rotation:
+                    heat_delta = abs(heat - state._prev_heat)
+                    price_delta = abs(last_price - state._prev_price)
+                    if heat_delta > 0.15:
+                        event_code += "set :event_spike, 1\n"
+                    if price_delta > 0.03:
+                        direction = 1 if last_price > state._prev_price else -1
+                        event_code += f"set :event_price_move, {direction}\n"
+                    if event_code:
+                        print(f"[EVENT] heat_delta={heat_delta:.3f} price_delta={price_delta:.4f}", flush=True)
                 state._prev_heat = heat
                 state._prev_price = last_price
 

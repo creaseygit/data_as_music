@@ -20,6 +20,8 @@ Python pushes **raw normalized market data** to Sonic Pi every 3 seconds via `ru
 | `:event_spike`      | 0 or 1    | Heat delta > 0.15 between pushes  |
 | `:event_price_move` | -1, 0, +1 | Price delta > 3¢ (+1 up, -1 down) |
 
+Events are **suppressed for one push cycle** when the market rotates (e.g., a live finance market expires and the next one loads). On rotation, `_prev_price`, `_prev_heat`, and `_current_tone` reset to the new market's values so the first delta is zero. Normal event detection resumes on the next cycle (3s later).
+
 ## System State
 
 | Name               | Values   | Meaning                                |
