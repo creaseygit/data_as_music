@@ -223,7 +223,7 @@ Common patterns used in existing tracks:
 ## Existing Tracks
 
 ### oracle.js
-Piano alert track. Single `Tone.Loop` (3s interval). FMSynth voices with per-note panning play ascending/descending motifs (2–6 notes) on price movement > 0.1. C major when bullish, A minor when bearish. `hard` and `vel` parameters drive FM modulation depth and envelope. Volume scales with velocity + trade_rate, adjusted for `set_volume! 0.3`.
+Piano alert track. Single `Tone.Loop` (3s interval). FMSynth voices with per-note panning play ascending/descending motifs (2–6 notes) on price movement > 0.1. C major when bullish, A minor when bearish. `hard` and `vel` parameters drive FM modulation depth and envelope. Volume scales with activity (velocity + trade_rate).
 
 ### mezzanine.js
 Massive Attack/Teardrop-inspired ambient dub, 80 BPM. Am → Am → F → G progression. 12+ concurrent loops: sub bass (sine), bass (MonoSynth/tb303), arp (PluckSynth with octave shifts), kick + kick ghost (bd_fat samples), snare (sn_dub), hi-hat (drum_cymbal_closed through HPF), rim (drum_cowbell), vinyl dust (vinyl_hiss), pad/dub wash (triangle + reverb), deep echo (fatsawtooth + delay), price drift (PluckSynth through reverb→echo→LPF), ambient drone. Heat inversely drives pad density. Price drives all filter cutoffs via `midiToHz()`. Events trigger FMSynth piano arpeggios and cymbal crashes.

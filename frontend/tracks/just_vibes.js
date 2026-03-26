@@ -208,7 +208,7 @@ class JustVibesTrack {
     // ── Vinyl: every 8 beats ──
     this.vinylLoop = new Tone.Loop((time) => {
       self._playSample('vinyl_hiss', time, {
-        amp: 0.05 * 5.0,
+        amp: 0.04,
         playbackRate: 0.7,
       });
     }, bps * 8);
@@ -218,7 +218,7 @@ class JustVibesTrack {
     this.kickLoop = new Tone.Loop((time) => {
       const h = self.data.heat;
       const tr = self.data.trade_rate;
-      const amp_val = (0.18 + h * 0.1) * 1.59;
+      const amp_val = 0.16 + h * 0.08;
 
       // Beat 1: cutoff: 60
       self._playSample('bd_fat', time, {
@@ -245,7 +245,7 @@ class JustVibesTrack {
     // Sonic Pi: finish: 0.25, ghost finish: 0.15
     this.snareLoop = new Tone.Loop((time) => {
       const h = self.data.heat;
-      const amp = (0.06 + h * 0.04) * 0.77;
+      const amp = 0.07 + h * 0.05;
 
       self._playSample('sn_dub', time, {
         amp: amp, playbackRate: 0.85,
@@ -256,7 +256,7 @@ class JustVibesTrack {
       // Ghost snare: finish: 0.15 (even tighter)
       if (Math.random() < 0.15) {
         self._playSample('sn_dub', time + bps * 1.75, {
-          amp: 0.025 * 0.77, playbackRate: 0.9,
+          amp: 0.03, playbackRate: 0.9,
           finish: 0.15,
           destination: self.snareGhostReverb,
         });
@@ -273,7 +273,7 @@ class JustVibesTrack {
 
       const prob = 0.12 + tr * 0.35;
       if (Math.random() < prob) {
-        const amp = self._rrand(0.015, 0.04) * 2.2;
+        const amp = self._rrand(0.02, 0.06);
         self._playSample('drum_cymbal_closed', time, {
           amp: amp,
           playbackRate: self._rrand(1.3, 1.7),
@@ -292,7 +292,7 @@ class JustVibesTrack {
       const tr = self.data.trade_rate;
       if (tr > 0.2 && self.rimPattern[self.rimStep % 16] === 1) {
         self._playSample('drum_cowbell', time, {
-          amp: 0.02 * 0.52,
+          amp: 0.03,
           playbackRate: 2.8,
           finish: 0.03,                     // tiny tick
           pan: self._rrand(-0.15, 0.15),
@@ -306,7 +306,7 @@ class JustVibesTrack {
       const h = self.data.heat;
       const roots = self._getRoots();
       const root = roots[self.chordIdx];
-      const amp = (0.14 + h * 0.06) * 0.23 * 0.39;
+      const amp = 0.12 + h * 0.06;
       self.subSynth.triggerAttackRelease(root, bps * 3 + bps * 0.8, time, amp);
     }, bps * 4);
 
@@ -320,7 +320,7 @@ class JustVibesTrack {
       const roots = self._getRoots();
       const rootMidi = noteToMidi(roots[self.chordIdx]);
       const rn = rootMidi;
-      const amp_val = (0.05 + h * 0.03) * 0.6 * 0.59;
+      const amp_val = 0.08 + h * 0.06;
 
       const R = null;
       const phrases = [
@@ -361,7 +361,7 @@ class JustVibesTrack {
       if (self.data.ambient_mode === 1) {
         const notes = ['F2', 'C3', 'F3'];
         const note = self._choose(notes);
-        const amp = 0.06 * 5.0 * 5.0;
+        const amp = 0.10;
         self.droneSynth.triggerAttackRelease(note, bps * 8, time, amp);
       }
     }, bps * 8);
@@ -382,7 +382,7 @@ class JustVibesTrack {
       // Tune noise bandpass to follow pad cutoff for breathy character
       self.padNoiseFilter.frequency.rampTo(cutFreq, 0.5);
 
-      const amp = Math.max(0.012, 0.045 - h * 0.02) * 2.66 * 2.15;
+      const amp = Math.max(0.05, 0.10 - h * 0.05);
       const chords = self._getChords();
       const chord = chords[self.chordIdx];
       self.padSynth.triggerAttackRelease(chord, bps * 5, time, amp);
@@ -410,7 +410,7 @@ class JustVibesTrack {
         const roots = self._getRoots();
         const root = self._choose(roots);
         const rootMidi = noteToMidi(root) + 24;
-        const amp = (0.025 + v * 0.025) * 5.0 * 5.0;
+        const amp = 0.03 + v * 0.06;
         self.deepSynth.triggerAttackRelease(midiToNote(rootMidi), bps * 4, time, amp);
       }
       self._scheduleDeep();
@@ -428,7 +428,7 @@ class JustVibesTrack {
     const sc = getScaleNotes(scaleRoot, scaleType, 20, 2);
 
     const num = Math.min(Math.max(2 + Math.floor(mag * 5), 2), 5);
-    const vol = Math.min(Math.max(0.04 + mag * 0.1, 0.04), 0.11);
+    const vol = Math.min(Math.max(0.06 + mag * 0.08, 0.06), 0.12);
     const ns = pd > 0 ? sc.slice(0, num) : sc.slice(0, num).reverse();
 
     let offset = 0;
@@ -509,7 +509,7 @@ class JustVibesTrack {
       if (elapsed >= this.spikeCooldown) {
         this.lastSpikeAt = Date.now();
         this._playSample('drum_cymbal_soft', now, {
-          amp: 0.06 * 1.87,
+          amp: 0.08,
           playbackRate: 0.45,
           destination: this.spikeReverb,
         });

@@ -13,9 +13,7 @@ class OracleTrack {
       trade_rate: 0.2,
     };
 
-    // Sonic Pi set_volume! 0.3, audio-engine masterGain is 0.7
-    // Effective scale: 0.3 / 0.7 ≈ 0.4286
-    this.volumeScale = 0.3 / 0.7;
+    // No volumeScale needed — masterGain (0.7) handles global level
 
     // Reverb: Sonic Pi room: 0.6, damp: 0.5
     this.reverb = new Tone.Reverb({
@@ -127,11 +125,11 @@ class OracleTrack {
     let notes = getScaleNotes(root, scaleType, numNotes, 2);
     if (pd < 0) notes = notes.slice().reverse();
 
-    // activity = clamp(0.3 + velocity * 0.4 + trade_rate * 0.3, 0, 1)
-    const activity = Math.min(1.0, 0.3 + d.velocity * 0.4 + d.trade_rate * 0.3);
+    // activity = clamp(0.5 + velocity * 0.3 + trade_rate * 0.2, 0, 1)
+    const activity = Math.min(1.0, 0.5 + d.velocity * 0.3 + d.trade_rate * 0.2);
 
-    // vol = clamp(0.02 + mag * 0.06, 0.02, 0.05) * activity
-    const vol = Math.min(0.05, Math.max(0.02, 0.02 + mag * 0.06)) * activity;
+    // vol = clamp(0.12 + mag * 0.35, 0.12, 0.30) * activity
+    const vol = Math.min(0.30, Math.max(0.12, 0.12 + mag * 0.35)) * activity;
 
     // hard = clamp(0.1 + mag * 0.4, 0.1, 0.3)
     const hard = Math.min(0.3, Math.max(0.1, 0.1 + mag * 0.4));
@@ -147,7 +145,7 @@ class OracleTrack {
       const ampEnv = pd > 0
         ? vol * (0.7 + frac * 0.3)
         : vol * (1.0 - frac * 0.3);
-      const amp = ampEnv * 0.95 * this.volumeScale;
+      const amp = ampEnv * 0.95;
 
       // Pan: (frac - 0.5) * 0.3
       const pan = (frac - 0.5) * 0.3;

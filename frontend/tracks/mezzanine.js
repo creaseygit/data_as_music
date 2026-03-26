@@ -284,7 +284,7 @@ class MezzanineTrack {
       self.chordIdx = (self.chordIdx + 1) % 8;
       const h = self.data.heat;
       const root = self._chordRootMidi();
-      const amp = (0.16 + h * 0.1) * 0.23;
+      const amp = 0.13 + h * 0.06;
       self.subSynth.triggerAttackRelease(
         midiToNote(root), 3, time, amp
       );
@@ -300,7 +300,7 @@ class MezzanineTrack {
       const idx = self.chordIdx % 8;
       const r = idx < 4 ? 45 : (idx < 6 ? 41 : 43);
 
-      const amp = (0.06 + h * 0.05) * 0.6;
+      const amp = 0.10 + h * 0.08;
 
       const phrases = [
         [r, 1.5, null, 0.5, r + 7, 0.5, r + 5, 0.5, r, 1.0],
@@ -336,7 +336,7 @@ class MezzanineTrack {
 
       if (h > 0.75 && Math.random() < 0.6) return;
 
-      const amp = Math.max(0.015, 0.04 - h * 0.015);
+      const amp = Math.max(0.06, 0.12 - h * 0.06);
       self.arpFilter.frequency.rampTo(midiToHz(75 + pr * 15), 0.1, time);
 
       const ns = self._arpNotes();
@@ -356,12 +356,12 @@ class MezzanineTrack {
         // coeff 0.1-0.2 in Sonic Pi = moderately damped but still ringing.
         // Map to resonance ~0.88-0.95 for similar ring time.
         self.arpSynth.resonance = self._rrand(0.88, 0.95);
-        self.arpSynth.triggerAttack(midiToNote(midi), time + offset, vel * 1.86);
+        self.arpSynth.triggerAttack(midiToNote(midi), time + offset, vel);
 
         if (tr > 0.5 && Math.random() < 0.2) {
           offset += 0.25 * beatDur;
           self.arpSynth.triggerAttack(
-            midiToNote(midi + 12), time + offset, vel * 0.5 * 1.86
+            midiToNote(midi + 12), time + offset, vel * 0.5
           );
           offset += 0.25 * beatDur;
         } else {
@@ -377,7 +377,7 @@ class MezzanineTrack {
     this.kickLoop = new Tone.Loop((time) => {
       const h = self.data.heat;
       const tr = self.data.trade_rate;
-      const amp = (0.2 + h * 0.15) * 1.6;
+      const amp = 0.18 + h * 0.10;
 
       self._playSample('bd_fat', time, {
         amp: amp,
@@ -389,7 +389,7 @@ class MezzanineTrack {
       // Sonic Pi: cutoff: 60, rate: 0.8
       if (tr > 0.4) {
         self._playSample('bd_fat', time + 0.75 * beatDur, {
-          amp: amp * 0.4,
+          amp: amp * 0.35,
           playbackRate: 0.8,
           destination: self.kickGhostFilter,  // LPF cutoff: 60
         });
@@ -406,7 +406,7 @@ class MezzanineTrack {
       self.kickGhostTick++;
       if (tr > 0.3 && pat === 1) {
         self._playSample('bd_fat', time, {
-          amp: (0.06 + h * 0.05) * 1.6,
+          amp: 0.05 + h * 0.04,
           playbackRate: 0.75,
           destination: self.kickPatternFilter,  // LPF cutoff: 55
         });
@@ -418,7 +418,7 @@ class MezzanineTrack {
     this.snareLoop = new Tone.Loop((time) => {
       const h = self.data.heat;
       const tr = self.data.trade_rate;
-      const amp = (0.08 + h * 0.07) * 0.78;
+      const amp = 0.08 + h * 0.07;
 
       self._playSample('sn_dub', time, {
         amp: amp,
@@ -430,7 +430,7 @@ class MezzanineTrack {
       // Ghost snare: finish: 0.2 (even tighter)
       if (tr > 0.5 && Math.random() < 0.4) {
         self._playSample('sn_dub', time + 1.5 * beatDur, {
-          amp: 0.05 * 0.78,
+          amp: 0.04,
           playbackRate: 1.0,
           finish: 0.2,
           destination: self.snareGhostReverb,
@@ -445,7 +445,7 @@ class MezzanineTrack {
       const tr = self.data.trade_rate;
       const h = self.data.heat;
       if (tr > 0.25 && self.rimPattern[self.rimTick % 16] === 1) {
-        const amp = (0.03 + h * 0.03) * 0.52;
+        const amp = 0.03 + h * 0.03;
         self._playSample('drum_cowbell', time, {
           amp: amp,
           playbackRate: 2.5,
@@ -462,7 +462,7 @@ class MezzanineTrack {
       const tr = self.data.trade_rate;
       const prob = 0.1 + tr * 0.35;
       if (Math.random() < prob) {
-        const amp = self._rrand(0.02, 0.06) * 2.48;
+        const amp = self._rrand(0.03, 0.07);
         self._playSample('drum_cymbal_closed', time, {
           amp: amp,
           playbackRate: self._rrand(1.2, 1.8),
@@ -477,7 +477,7 @@ class MezzanineTrack {
     // ── Vinyl dust: every 8 beats ──
     this.vinylLoop = new Tone.Loop((time) => {
       self._playSample('vinyl_hiss', time, {
-        amp: 0.045 * 5.0,
+        amp: 0.04,
         playbackRate: 0.8,
       });
     }, '2m');
@@ -488,7 +488,7 @@ class MezzanineTrack {
       const pr = self.data.price;
       const t = self.data.tone;
 
-      const amp = Math.max(0.015, 0.05 - h * 0.025) * 2.66;
+      const amp = Math.max(0.05, 0.10 - h * 0.05);
       const cutFreq = midiToHz(55 + pr * 20);
       self.padFilter.frequency.rampTo(cutFreq, 0.5, time);
       // Tune the noise bandpass to follow the pad cutoff for breathy character
@@ -522,7 +522,7 @@ class MezzanineTrack {
         ? ['A3', 'C4', 'E4']
         : ['A3', 'C4', 'G#3'];
       const n = self._choose(notes);
-      const amp = (0.03 + v * 0.03) * 5.0;
+      const amp = 0.04 + v * 0.06;
       self.deepSynth.triggerAttackRelease(n, 3, time, amp);
 
       self.deepLoop.interval = self._choose([8, 10, 12]) * beatDur;
@@ -536,14 +536,14 @@ class MezzanineTrack {
 
       const sc = getScaleNotes('A4', 'minor_pentatonic', 14, 2);
       const num = Math.min(6, Math.max(2, 2 + Math.floor(mag * 6)));
-      const vol = Math.min(0.14, Math.max(0.04, 0.04 + mag * 0.12));
+      const vol = Math.min(0.14, Math.max(0.06, 0.06 + mag * 0.12));
       const ns = pd > 0 ? sc.slice(0, num) : sc.slice(0, num).reverse();
 
       let offset = 0;
       ns.forEach(n => {
         const v = vol * self._rrand(0.6, 1.0);
         self.driftSynth.resonance = 0.85;
-        self.driftSynth.triggerAttack(n, time + offset, v * 1.86);
+        self.driftSynth.triggerAttack(n, time + offset, v);
         offset += self._choose([0.5, 0.75, 1.0]);
       });
     }, 3);
@@ -553,7 +553,7 @@ class MezzanineTrack {
       if (self.data.ambient_mode !== 1) return;
       const notes = ['A2', 'E3', 'A3'];
       const n = self._choose(notes);
-      self.droneSynth.triggerAttackRelease(n, 8, time, 0.08 * 5.0);
+      self.droneSynth.triggerAttackRelease(n, 8, time, 0.12);
     }, '2m');
   }
 
@@ -628,7 +628,7 @@ class MezzanineTrack {
       if (elapsed >= this.spikeCooldown) {
         this.lastSpikeAt = Date.now();
         this._playSample('drum_cymbal_soft', now, {
-          amp: 0.08 * 1.88,
+          amp: 0.10,
           playbackRate: 0.5,
           destination: this.spikeReverb,
         });
