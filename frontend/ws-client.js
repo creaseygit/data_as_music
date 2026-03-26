@@ -58,8 +58,5 @@ const wsClient = (() => {
     }
   }
 
-  // Auto-connect on load
-  connect();
-
   return { connect, send };
 })();

@@ -291,3 +291,4 @@ function onWsError(msg) {
 
 // ── Init ──
 log('Ready. Pick a market to play, or paste a Polymarket URL.');
+wsClient.connect();
