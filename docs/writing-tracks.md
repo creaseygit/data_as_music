@@ -183,9 +183,6 @@ Piano alert track. Returns pattern only when `|price_delta| > 0.1`, otherwise `n
 ### mezzanine.js
 Massive Attack trip-hop, 80 BPM. Am → Am → Fm → Gm progression (4-bar cycle). Half-time beat: kick on 1 and "and" of 2 (`bd:3`), snare on 3 only (`sd:1`), 8th-note hi-hats with `degradeBy` for human feel. Deep saw bass with root-fifth phrases, sub bass (sine) on roots. Pad triads (triangle + reverb), vinyl hiss. Activity-gated: open hat, ghost kicks, dub echo stab (delay/feedback), cowbell rim clicks. Tone switches between natural minor (bullish) and darker voicings (bearish). Events trigger piano arpeggios and cymbal crashes.
 
-### just_vibes.js
-Lo-fi hip hop, 75 BPM. Bullish: Fmaj7→Em7→Dm7→Cmaj7. Bearish: Dm7→Bbmaj7→Gm7→Am7. Same sample-based drum palette as mezzanine. Price drift uses FM piano. Deep echo at random 10-14 beat intervals. From `sonic_pi/just_vibes.rb`.
-
 ## Legacy References
 
 - **Sonic Pi originals** were removed from the repo (Strudel migration complete). Git history has them if needed.

@@ -30,13 +30,17 @@ const audioEngine = (() => {
     // Poll until the sampler reports no pending loads (up to 8s).
     try {
       stack(
+        // Drums
         sound("bd:0 bd:1 bd:3"),
         sound("sd:0 sd:1"),
         sound("hh:0 hh:2 hh:6 hh:8"),
         sound("cb:0"),
+        // Piano — one sample per ~3 semitones, cover C3-C6 range
+        // (Salamander Grand Piano loads a separate .wav per pitch zone)
+        note("c3 e3 a3 c4 e4 a4 c5 e5 a5 c6").sound("piano"),
       ).gain(0).play();
       // Wait for fetches to complete — CDN samples take 2-4s
-      await new Promise(r => setTimeout(r, 4000));
+      await new Promise(r => setTimeout(r, 5000));
       hush();
       console.log('[Audio] Sample warmup complete');
     } catch (e) {
