@@ -84,9 +84,10 @@ const mezzanineTrack = (() => {
           .room(0.35).rsize(2)
       );
 
-      // Vinyl hiss
+      // Vinyl hiss — short burst each cycle, not sustained
       layers.push(
-        sound("pink").slow(2).end(0.5).gain(0.03).hpf(3000)
+        sound("pink").end(0.15).gain(0.015).hpf(4000)
+          .attack(0.2).release(0.3)
       );
 
       // ── Activity-gated layers ──
