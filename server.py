@@ -829,6 +829,15 @@ HTML_PAGE = r"""<!DOCTYPE html>
   .market-question { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .market-meta { font-size: 11px; color: #555; margin-top: 3px; display: flex; gap: 14px; }
   .market-play-badge { color: #00ff88; font-size: 11px; font-weight: bold; white-space: nowrap; }
+  .browse-play-btn {
+    background: #00aaff22; color: #00aaff; border: 1px solid #00aaff44; border-radius: 4px;
+    padding: 4px 14px; font-family: inherit; font-size: 11px; font-weight: bold; cursor: pointer;
+    text-transform: uppercase; letter-spacing: 0.5px; transition: all 0.15s; white-space: nowrap;
+  }
+  .browse-play-btn:hover { background: #00aaff44; border-color: #00aaff; color: #fff; }
+  .browse-play-btn.is-playing {
+    background: #00ff8822; color: #00ff88; border-color: #00ff8844; cursor: default;
+  }
   .market-link { color: #00aaff; text-decoration: none; font-size: 16px; padding: 6px 10px; border: 1px solid #1a1a2e; border-radius: 4px; transition: all 0.15s; white-space: nowrap; }
   .market-link:hover { color: #fff; background: #00aaff22; border-color: #00aaff; }
   .market-tags { font-size: 10px; color: #444; }
@@ -996,6 +1005,8 @@ async function startAudio() {
 async function stopAudio() {
   const r = await api('/api/stop', 'POST');
   r.ok ? log('Audio stopped') : log('ERR: ' + r.error);
+  // Re-render browse to reset Play/Playing buttons
+  if (activeTab && browseCache[activeTab]) renderBrowse(browseCache[activeTab]);
 }
 async function onTrackChange() {
   if (!lastStatus || !lastStatus.audio_running) return;
@@ -1030,6 +1041,14 @@ async function playUrl() {
   if (!url) return;
   status.textContent = 'Loading...';
   status.style.color = '#00aaff';
+  // Auto-start audio if not running
+  if (!lastStatus || !lastStatus.audio_running) {
+    const track = document.getElementById('track-select').value;
+    log('Starting: ' + track);
+    const sr = await api('/api/start', 'POST', {track});
+    if (!sr.ok) { status.textContent = 'Error: ' + sr.error; status.style.color = '#ff4444'; return; }
+    log('Audio on, port ' + sr.osc_port);
+  }
   try {
     const r = await api('/api/play-url', 'POST', {url});
     if (r.ok) {
@@ -1048,6 +1067,14 @@ async function playUrl() {
 
 // ── Play from browse ──
 async function playBrowseMarket(slug, question, eventSlug) {
+  // Auto-start audio if not running
+  if (!lastStatus || !lastStatus.audio_running) {
+    const track = document.getElementById('track-select').value;
+    log('Starting: ' + track);
+    const sr = await api('/api/start', 'POST', {track});
+    if (!sr.ok) { log('ERR: ' + sr.error); return; }
+    log('Audio on, port ' + sr.osc_port);
+  }
   const r = await api('/api/play-url', 'POST', {url: 'https://polymarket.com/event/' + (eventSlug || slug)});
   if (r.ok) {
     log('Playing: ' + r.question);
@@ -1104,7 +1131,7 @@ function renderBrowse(markets) {
     el.innerHTML = '<div class="browse-loading">No markets found</div>';
     return;
   }
-  const playing = lastStatus && lastStatus.pinned;
+  const playing = lastStatus && lastStatus.audio_running && lastStatus.pinned;
   el.innerHTML = markets.map(m => {
     const slug = (m.slug||'').replace(/'/g, "\\'");
     const q = (m.question||'').replace(/'/g, "\\'");
@@ -1114,14 +1141,17 @@ function renderBrowse(markets) {
     const vol = m.volume > 0 ? '$' + (m.volume/1000).toFixed(0) + 'k' : '';
     const isPlaying = playing === m.slug;
     const cls = isPlaying ? 'browse-card playing' : 'browse-card';
-    return '<div class="' + cls + '" onclick="playBrowseMarket(\'' + slug + '\',\'' + q + '\',\'' + es + '\')">'
+    const playBtn = isPlaying
+      ? '<button class="browse-play-btn is-playing" disabled>Playing</button>'
+      : '<button class="browse-play-btn" onclick="playBrowseMarket(\'' + slug + '\',\'' + q + '\',\'' + es + '\')">Play</button>';
+    return '<div class="' + cls + '">'
       + '<div class="browse-body">'
       + '<div class="browse-question">' + (m.question||'').substring(0,65) + '</div>'
       + '<div class="browse-meta">' + vol + '</div>'
       + '</div>'
       + (pricePct ? '<div class="browse-price">' + pricePct + '</div>' : '')
-      + (link ? '<a class="market-link" href="' + link + '" target="_blank" rel="noopener" onclick="event.stopPropagation();">View &#x2197;</a>' : '')
-      + (isPlaying ? '<div class="market-play-badge">PLAYING</div>' : '')
+      + (link ? '<a class="market-link" href="' + link + '" target="_blank" rel="noopener">View &#x2197;</a>' : '')
+      + playBtn
       + '</div>';
   }).join('');
 }
@@ -1176,7 +1206,7 @@ setInterval(async () => {
 }, 1500);
 
 initBrowse();
-log('Ready. Start audio, then pick a market to play.');
+log('Ready. Pick a market to play, or paste a Polymarket URL.');
 </script>
 </body>
 </html>
