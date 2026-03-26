@@ -98,12 +98,15 @@ const audioEngine = (() => {
       const pat = currentTrackDef.pattern(latestData);
       if (pat) {
         pat.gain(masterVolume).play();
-        playing = true;
       } else {
         // Track wants silence — replace current pattern with empty one.
         // Without this, the previous non-null pattern keeps looping.
         silence.play();
       }
+      // Always mark as playing so data updates keep regenerating the pattern.
+      // Otherwise a track that starts silent (e.g. oracle with no movement)
+      // never wakes up when data changes.
+      playing = true;
     } catch (e) {
       console.warn('[Audio] Pattern generation error:', e);
     }
