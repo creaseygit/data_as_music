@@ -23,7 +23,11 @@ const audioEngine = (() => {
       sampleMap[name] = [name + '.ogg'];
     }
     await initStrudel({
-      prebake: () => samples(sampleMap, '/static/samples/'),
+      prebake: () => Promise.all([
+        samples(sampleMap, '/static/samples/'),
+        // Load Strudel's default piano soundfont (used by oracle, just_vibes, mezzanine)
+        samples('github:sgossner/VCSL/master/piano/salamander', { tag: 'piano' }),
+      ]),
     });
     initialized = true;
     console.log('[Audio] Strudel initialized');

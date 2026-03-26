@@ -198,4 +198,3 @@ Lo-fi hip hop, 75 BPM. Bullish: Fmaj7→Em7→Dm7→Cmaj7. Bearish: Dm7→Bbmaj7
 ## Legacy References
 
 - **Sonic Pi originals:** `sonic_pi/*.rb` — The source of truth for musical content. All Strudel tracks are ported from these, using the mastered amp values (with `~nf` normalization factors applied).
-- **Archived Tone.js versions:** `frontend/tracks/_tone_*.js` — Previous Tone.js implementations, kept for reference. Underscore prefix means the server skips them.
