@@ -24,17 +24,17 @@ const oracleTrack = {
     // 2-5 chords based on magnitude
     const num = Math.min(5, Math.max(2, 2 + Math.floor(mag * 5)));
 
-    // Scale degree triads: [root,3rd,5th] ascending or descending
-    const triads = [];
+    // Scale degrees: ascending for up, descending for down
+    const degrees = [];
     if (pd > 0) {
-      for (let i = 0; i < num; i++) triads.push(`[${i},${i+2},${i+4}]`);
+      for (let i = 0; i < num; i++) degrees.push(i);
     } else {
-      for (let i = num - 1; i >= 0; i--) triads.push(`[${i},${i+2},${i+4}]`);
+      for (let i = num - 1; i >= 0; i--) degrees.push(i);
     }
 
     // Pad with rests so it doesn't loop too fast
     const rests = Array(Math.max(1, 8 - num)).fill('-');
-    const pat = [...triads, ...rests].join(' ');
+    const pat = [...degrees, ...rests].join(' ');
 
     // Base volume scales with magnitude and market activity
     const v = data.velocity || 0.1;
@@ -42,10 +42,11 @@ const oracleTrack = {
     const activity = Math.min(1.0, 0.3 + v * 0.4 + tr * 0.3);
     const vol = Math.min(0.05, Math.max(0.02, 0.02 + mag * 0.06)) * activity;
 
-    return n(pat)
-      .scale(scaleName)
+    // off() BEFORE n().scale() — arithmetic on raw degrees, then map to notes
+    return pat
+      .off(1/8, add("2,4"))
+      .n().scale(scaleName)
       .sound("piano")
-      // Humanize: random gain variation per chord + slight timing drift
       .gain(rand.range(vol * 0.6, vol * 1.2))
       .late(rand.range(0, 0.02))
       .room(rand.range(0.4, 0.7))
