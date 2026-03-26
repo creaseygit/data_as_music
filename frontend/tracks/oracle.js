@@ -42,8 +42,8 @@ const oracleTrack = {
     const activity = Math.min(1.0, 0.3 + v * 0.4 + tr * 0.3);
     const vol = Math.min(0.05, Math.max(0.02, 0.02 + mag * 0.06)) * activity;
 
-    // off() BEFORE n().scale() — arithmetic on raw degrees, then map to notes
-    return pat
+    // mini() converts string to Pattern, then off() adds chord voicing before scale mapping
+    return mini(pat)
       .off(1/8, add("2,4"))
       .n().scale(scaleName)
       .sound("piano")
