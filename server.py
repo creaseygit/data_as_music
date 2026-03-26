@@ -382,7 +382,8 @@ async def _play_url_for_session(session: ClientSession, url: str):
 
         return await _pin_market_for_session(session, market["slug"])
     except Exception as e:
-        return {"error": str(e)}
+        print(f"[PLAY_URL] Error: {e}", flush=True)
+        return {"error": "Failed to load market from URL"}
 
 
 # ── WebSocket handler ─────────────────────────────────────
@@ -502,7 +503,7 @@ async def handle_browse(request):
     import polymarket.gamma as gamma_module
     tag_id = request.query.get("tag_id")
     sort = request.query.get("sort", "volume")
-    limit = int(request.query.get("limit", "10"))
+    limit = min(int(request.query.get("limit", "10")), 50)
     try:
         if tag_id == "live":
             markets = gamma_module.fetch_live_finance_markets()
@@ -532,7 +533,8 @@ async def handle_browse(request):
             })
         return web.json_response({"ok": True, "markets": result})
     except Exception as e:
-        return web.json_response({"error": str(e)}, status=500)
+        print(f"[BROWSE] Error: {e}", flush=True)
+        return web.json_response({"error": "Failed to fetch markets"}, status=500)
 
 
 async def handle_categories(request):

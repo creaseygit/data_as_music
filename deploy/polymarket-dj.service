@@ -3,7 +3,7 @@ Description=The Polymarket DJ
 After=network.target
 
 [Service]
-User=www-data
+User=polymarket-dj
 WorkingDirectory=/opt/polymarket_dj
 ExecStart=/opt/polymarket_dj/venv/bin/python server.py
 Restart=always

@@ -7,11 +7,20 @@ let activeTab = null;
 let currentMarketSlug = null;
 let audioRunning = false;
 
+// ── HTML escaping ──
+function esc(str) {
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+
 // ── Logging ──
 function log(msg) {
   const el = document.getElementById('log');
   const t = new Date().toLocaleTimeString();
-  el.innerHTML += '<div>[' + t + '] ' + msg + '</div>';
+  const line = document.createElement('div');
+  line.textContent = '[' + t + '] ' + msg;
+  el.appendChild(line);
   el.scrollTop = el.scrollHeight;
 }
 
@@ -153,7 +162,7 @@ function renderBrowse(markets) {
     const slug = (m.slug || '').replace(/'/g, "\\'");
     const q = (m.question || '').replace(/'/g, "\\'");
     const es = (m.event_slug || m.slug || '').replace(/'/g, "\\'");
-    const link = es ? 'https://polymarket.com/event/' + es : '';
+    const link = es ? 'https://polymarket.com/event/' + esc(es) : '';
     const pricePct = m.price !== null ? (m.price * 100).toFixed(0) + '%' : '';
     const vol = m.volume > 0 ? '$' + (m.volume / 1000).toFixed(0) + 'k' : '';
     const isPlaying = currentMarketSlug === m.slug;
@@ -163,10 +172,10 @@ function renderBrowse(markets) {
       : '<button class="browse-play-btn" onclick="playBrowseMarket(\'' + slug + '\',\'' + q + '\',\'' + es + '\')">Play</button>';
     return '<div class="' + cls + '">'
       + '<div class="browse-body">'
-      + '<div class="browse-question">' + (m.question || '').substring(0, 65) + '</div>'
-      + '<div class="browse-meta">' + vol + '</div>'
+      + '<div class="browse-question">' + esc((m.question || '').substring(0, 65)) + '</div>'
+      + '<div class="browse-meta">' + esc(vol) + '</div>'
       + '</div>'
-      + (pricePct ? '<div class="browse-price">' + pricePct + '</div>' : '')
+      + (pricePct ? '<div class="browse-price">' + esc(pricePct) + '</div>' : '')
       + (link ? '<a class="market-link" href="' + link + '" target="_blank" rel="noopener">View &#x2197;</a>' : '')
       + playBtn
       + '</div>';

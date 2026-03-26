@@ -7,15 +7,18 @@ echo "=== Installing system packages ==="
 sudo apt update
 sudo apt install -y python3.12 python3.12-venv nginx git
 
+echo "=== Creating service user ==="
+sudo useradd --system --shell /usr/sbin/nologin --home-dir /opt/polymarket_dj polymarket-dj || true
+
 echo "=== Cloning repository ==="
 sudo mkdir -p /opt/polymarket_dj
-sudo chown www-data:www-data /opt/polymarket_dj
-sudo -u www-data git clone https://github.com/creaseygit/polymarket_dj.git /opt/polymarket_dj
+sudo chown polymarket-dj:polymarket-dj /opt/polymarket_dj
+sudo -u polymarket-dj git clone https://github.com/creaseygit/polymarket_dj.git /opt/polymarket_dj
 
 echo "=== Setting up Python venv ==="
 cd /opt/polymarket_dj
-sudo -u www-data python3.12 -m venv venv
-sudo -u www-data venv/bin/pip install -r requirements.txt
+sudo -u polymarket-dj python3.12 -m venv venv
+sudo -u polymarket-dj venv/bin/pip install -r requirements.txt
 
 echo "=== Configuring Nginx ==="
 sudo cp deploy/nginx.conf /etc/nginx/sites-available/polymarket-dj

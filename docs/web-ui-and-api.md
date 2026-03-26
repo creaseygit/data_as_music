@@ -68,8 +68,10 @@ Each tab fetches 10 markets from the Gamma API filtered by `tag_id` (defined in 
 
 - **Lightsail** $5/mo plan (1GB RAM, 1 vCPU) in us-east-1 (eliminates VPN requirement, includes 2TB data transfer)
 - **Nginx** reverse proxy: serves `frontend/` as static files, proxies `/ws` (with WebSocket upgrade) and `/api/*` to Python on port 8888
+  - Rate limiting on `/api/` — 5 req/s per IP, burst 10 (`limit_req_zone`)
+  - Security headers: `X-Content-Type-Options`, `X-Frame-Options`, `Content-Security-Policy`
 - **CloudFlare** for DNS, CDN (caches static assets), HTTPS (Full strict), WebSocket support
-- **systemd** service with auto-restart
+- **systemd** service runs as dedicated `polymarket-dj` user (not `www-data`)
 - Server sends WebSocket ping every 30s (CloudFlare has 100s idle timeout)
 - Config files in `deploy/`: `nginx.conf`, `polymarket-dj.service`, `setup.sh`
 
@@ -79,6 +81,8 @@ Each tab fetches 10 markets from the Gamma API filtered by `tag_id` (defined in 
 | ---------------- | --------------------------------------------------------------------- |
 | `[FEED]`         | Polymarket WebSocket feed lifecycle                                   |
 | `[PRICE POLL]`   | Gamma API price poll every 5s                                         |
+| `[BROWSE]`       | Browse API errors (logged server-side, generic message sent to client) |
+| `[PLAY_URL]`     | Play-URL errors (logged server-side, generic message sent to client)   |
 | `[BROADCAST]`    | Per-client data push errors                                           |
 | `[DJ]`           | Market switch/selection                                               |
 | `[LIVE]`         | Live finance rotation: countdown, rotation triggers, pattern matching |
