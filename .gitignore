@@ -44,3 +44,7 @@ sonic_pi/log/
 
 # Mastering pipeline output
 mastering_output/
+*.rb.bak
+
+# Claude Code
+.claude/
