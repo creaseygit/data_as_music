@@ -398,6 +398,36 @@ async def _play_url_for_session(session: ClientSession, url: str):
 
 # ── Per-session live finance rotation ─────────────────────
 
+async def _play_live_prefix(session: ClientSession, prefix: str):
+    """Resolve a live finance prefix (e.g. 'btc-updown-15m') to the current market and pin it."""
+    import polymarket.gamma as gamma_module
+
+    try:
+        live = await asyncio.to_thread(gamma_module.fetch_live_finance_markets)
+        if not live:
+            return {"error": "No live finance markets available"}
+
+        match = next(
+            (m for m in live if m.get("event_slug", "").startswith(prefix) and m.get("asset_ids")),
+            None,
+        )
+        if not match:
+            return {"error": f"No live market found for prefix: {prefix}"}
+
+        # Inject into DJ's list so _pin_market_for_session finds it
+        existing = next((m for m in state.dj.all_markets if m["slug"] == match["slug"]), None)
+        if not existing:
+            state.dj.all_markets.append(match)
+            for aid in match.get("asset_ids", []):
+                state.scorer.set_volume(aid, match.get("volume", 0))
+
+        print(f"[LIVE:{session.client_id}] play_live prefix='{prefix}' → {match.get('event_slug', '?')}", flush=True)
+        return await _pin_market_for_session(session, match["slug"])
+    except Exception as e:
+        print(f"[LIVE:{session.client_id}] play_live error: {e}", flush=True)
+        return {"error": "Failed to load live market"}
+
+
 async def _rotate_session_to_next_live(session: ClientSession, reason: str = "expired"):
     """Rotate a client session from an expired live finance market to the next one."""
     import polymarket.gamma as gamma_module
@@ -539,6 +569,13 @@ async def handle_ws(request):
                         url = msg.get("url", "")
                         if url:
                             result = await _play_url_for_session(session, url)
+                            if "error" in result:
+                                await ws.send_json({"type": "error", "message": result["error"]})
+
+                    elif action == "play_live":
+                        prefix = msg.get("prefix", "")
+                        if prefix:
+                            result = await _play_live_prefix(session, prefix)
                             if "error" in result:
                                 await ws.send_json({"type": "error", "message": result["error"]})
 

@@ -5,7 +5,77 @@
 let browseCache = {};
 let activeTab = null;
 let currentMarketSlug = null;
+let currentEventSlug = null;
 let audioRunning = false;
+
+// ── Live finance detection ──
+const _LIVE_SLUG_RE = /^(btc|eth)-updown-\d+m-\d+$|^bitcoin-up-or-down-.+-et$/;
+
+function livePrefix(eventSlug) {
+  if (!eventSlug || !_LIVE_SLUG_RE.test(eventSlug)) return null;
+  // Strip trailing timestamp (5m/15m) or date suffix (hourly)
+  let prefix = eventSlug.replace(/-\d+$/, '');
+  prefix = prefix.replace(/-[a-z]+-\d+-\d+-\d+[ap]m-et$/, '');
+  return prefix;
+}
+
+// ── URL hash state ──
+function getHashParams() {
+  const params = {};
+  const hash = location.hash.slice(1);
+  if (!hash) return params;
+  hash.split('&').forEach(part => {
+    const [k, v] = part.split('=');
+    if (k && v) params[decodeURIComponent(k)] = decodeURIComponent(v);
+  });
+  return params;
+}
+
+function updateHash() {
+  const parts = [];
+  // For live finance markets, store the prefix so it resolves to the current window
+  const lp = livePrefix(currentEventSlug);
+  if (lp) {
+    parts.push('live=' + encodeURIComponent(lp));
+  } else if (currentMarketSlug) {
+    parts.push('market=' + encodeURIComponent(currentMarketSlug));
+  }
+  const track = document.getElementById('track-select');
+  if (track && track.value) parts.push('track=' + encodeURIComponent(track.value));
+  const newHash = parts.length ? '#' + parts.join('&') : '';
+  if ('#' + location.hash.slice(1) !== newHash) {
+    history.replaceState(null, '', newHash || location.pathname + location.search);
+  }
+}
+
+let hashApplied = false;
+function applyHashOnce() {
+  if (hashApplied) return;
+  hashApplied = true;
+  const params = getHashParams();
+  if (!params.market && !params.live && !params.track) return;
+
+  // Apply track selection first
+  if (params.track) {
+    const sel = document.getElementById('track-select');
+    if (sel) {
+      for (const opt of sel.options) {
+        if (opt.value === params.track) { sel.value = params.track; break; }
+      }
+    }
+  }
+
+  // Auto-play the market from the URL hash
+  if (params.live) {
+    if (!audioRunning) startAudio();
+    wsClient.send({ action: 'play_live', prefix: params.live });
+    log('Loading live market: ' + params.live);
+  } else if (params.market) {
+    if (!audioRunning) startAudio();
+    wsClient.send({ action: 'pin', slug: params.market });
+    log('Loading market from URL: ' + params.market);
+  }
+}
 
 // ── HTML escaping ──
 function esc(str) {
@@ -53,6 +123,7 @@ function stopAudio() {
   audioEngine.stop();
   audioRunning = false;
   updateAudioUI();
+  updateHash();
   log('Audio stopped');
   if (activeTab && browseCache[activeTab]) renderBrowse(browseCache[activeTab]);
 }
@@ -73,6 +144,7 @@ function onTrackChange() {
     log('Switched to: ' + track);
   }
   wsClient.send({ action: 'track', name: track });
+  updateHash();
 }
 
 // ── Volume (client-side only) ──
@@ -242,6 +314,9 @@ function onWsStatus(data) {
   if (data.categories) {
     initBrowse(data.categories);
   }
+
+  // Apply URL hash params after tracks are populated
+  applyHashOnce();
 }
 
 function onWsMarketData(data) {
@@ -274,12 +349,16 @@ function onWsMarketInfo(market) {
   if (!market) {
     np.style.display = 'none';
     currentMarketSlug = null;
+    currentEventSlug = null;
+    updateHash();
     updateAudioUI();
     if (activeTab && browseCache[activeTab]) renderBrowse(browseCache[activeTab]);
     return;
   }
   np.style.display = '';
   currentMarketSlug = market.slug;
+  currentEventSlug = market.event_slug || null;
+  updateHash();
   updateAudioUI();
   document.getElementById('np-question').textContent = market.question;
   const npLink = document.getElementById('np-link');
