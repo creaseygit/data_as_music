@@ -540,11 +540,13 @@ class MezzanineTrack {
       const ns = pd > 0 ? sc.slice(0, num) : sc.slice(0, num).reverse();
 
       let offset = 0;
-      ns.forEach(n => {
+      const gaps = ns.map(() => self._choose([0.5, 0.75, 1.0]));
+      ns.forEach((n, i) => {
+        if (time + offset < 0) return;
         const v = vol * self._rrand(0.6, 1.0);
-        self.driftSynth.resonance = 0.85;
-        self.driftSynth.triggerAttack(n, time + offset, v);
-        offset += self._choose([0.5, 0.75, 1.0]);
+        const dur = gaps[i] * 0.9;  // release before next note
+        self.driftSynth.triggerAttackRelease(n, dur, time + offset, v);
+        offset += gaps[i];
       });
     }, 3);
 
