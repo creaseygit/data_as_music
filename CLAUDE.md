@@ -4,8 +4,8 @@
 
 A multi-user web app that turns Polymarket prediction market activity into generative music via **Tone.js** (browser-based audio). Python scores markets by real-time heat, normalizes data to 0–1 ranges, applies a per-client **sensitivity curve**, and pushes adjusted values to each connected browser via WebSocket. Each track (`.js` file in `frontend/tracks/`) is a self-contained Tone.js musical interpretation of the data.
 
-**Repo:** https://github.com/creaseygit/polymarket_dj
-**License:** MIT
+**Repo:** Private (GitHub)
+**License:** Not open source (Tone.js dependency is MIT)
 
 ## How to Run
 
