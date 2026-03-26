@@ -20,22 +20,30 @@
     └── setup.sh             # one-time provisioning script
 ```
 
-The app runs as a systemd service under the `polymarket-dj` user.
+The app runs as a systemd service under the `ubuntu` user.
+
+## SSH Access
+
+```bash
+ssh -i ~/.ssh/lightsail-polymarket-dj.pem ubuntu@3.210.159.215
+```
+
+The instance has a GitHub deploy key (`~/.ssh/deploy_key`) configured via `~/.ssh/config`, with the remote set to `git@github.com:creaseygit/polymarket_dj.git` (SSH).
 
 ## Deploying Changes
 
 After pushing to GitHub:
 
 ```bash
-ssh <lightsail-instance>
-cd /opt/polymarket_dj
-sudo -u polymarket-dj git pull
-sudo systemctl restart polymarket-dj
+ssh -i ~/.ssh/lightsail-polymarket-dj.pem ubuntu@3.210.159.215 \
+  "cd /opt/polymarket_dj && git pull && sudo systemctl restart polymarket-dj"
 ```
 
 For changes that only affect `frontend/` static files (JS, CSS, HTML), the restart is still needed because `server.py` serves `index.html` directly and discovers tracks at startup.
 
 ## Useful Commands
+
+All commands below assume you've SSH'd into the instance (see above), or prefix with the full ssh command.
 
 ```bash
 # Check if the service is running
