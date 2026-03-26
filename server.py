@@ -7,8 +7,7 @@ and serves a web UI at http://localhost:8888 for full control.
 Controls:
   - Start / Stop music
   - Choose track (.rb file)
-  - Pick market from top ranked list or go autonomous
-  - Pin a specific market by slug
+  - Pick a market to play from browse tabs or paste a URL
   - View live status
 """
 import asyncio
@@ -119,7 +118,6 @@ class AppState:
             "feed_running": self.feed_running,
             "current_track": self.current_track,
             "tracks": list(self.tracks.keys()),
-            "autonomous": self.dj.autonomous if self.dj else False,
             "pinned": self.dj.pinned_slug if self.dj else None,
             "current_market": market_info,
             "event_rate": self._get_event_rate(),
@@ -483,16 +481,6 @@ async def handle_unpin(request):
     return web.json_response({"error": "DJ not running"}, status=400)
 
 
-async def handle_autonomous(request):
-    """Toggle autonomous mode."""
-    data = await request.json()
-    enabled = data.get("enabled", False)
-    if state.dj:
-        state.dj.set_autonomous(enabled)
-        return web.json_response({"ok": True, "autonomous": enabled})
-    return web.json_response({"error": "DJ not running"}, status=400)
-
-
 async def handle_kill_all(request):
     """Emergency kill: stop audio and kill all orphaned scsynth/ruby processes."""
     import subprocess as sp
@@ -769,10 +757,12 @@ HTML_PAGE = r"""<!DOCTYPE html>
 
   .panel { background: #12121a; border: 1px solid #222; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
   .panel h2 { color: #00aaff; font-size: 15px; margin-bottom: 12px; }
+  .panel-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .panel-header h2 { margin-bottom: 0; }
 
   .audio-grid {
     display: grid;
-    grid-template-columns: auto auto 1fr auto auto;
+    grid-template-columns: auto 1fr auto;
     gap: 0 16px;
     align-items: center;
   }
@@ -781,12 +771,6 @@ HTML_PAGE = r"""<!DOCTYPE html>
   .audio-track { display: flex; flex-direction: column; gap: 4px; justify-self: end; }
   .audio-track select { min-width: 150px; }
   .audio-volume { display: flex; flex-direction: column; gap: 4px; }
-  .audio-restart { display: flex; align-items: center; }
-  .audio-test {
-    display: flex; gap: 6px; align-items: center; margin-top: 10px;
-    padding-top: 10px; border-top: 1px solid #1a1a2e;
-  }
-  .audio-test button { font-size: 11px; padding: 5px 10px; }
 
   .row { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
 
@@ -799,7 +783,6 @@ HTML_PAGE = r"""<!DOCTYPE html>
   button.danger { border-color: #ff4444; color: #ff4444; }
   button.danger:hover { background: #ff4444; color: #0a0a0f; }
   button.active { background: #00ff88; color: #0a0a0f; font-weight: bold; }
-  button.active-blue { background: #00aaff; color: #0a0a0f; border-color: #00aaff; }
   button:disabled { opacity: 0.3; cursor: default; }
 
   select {
@@ -900,9 +883,6 @@ HTML_PAGE = r"""<!DOCTYPE html>
   .osc-cell .lbl { font-size: 10px; color: #555; text-transform: uppercase; }
   .osc-cell .val { font-size: 18px; color: #00aaff; }
 
-  .mode-toggle { display: flex; border: 1px solid #333; border-radius: 4px; overflow: hidden; }
-  .mode-toggle button { border: none; border-radius: 0; flex: 1; }
-  .mode-toggle button:first-child { border-right: 1px solid #333; }
 
   #log {
     background: #08080c; border: 1px solid #1a1a2e; border-radius: 4px;
@@ -920,12 +900,14 @@ HTML_PAGE = r"""<!DOCTYPE html>
 
   <!-- Audio Engine -->
   <div class="panel">
-    <h2>Audio</h2>
-    <div class="audio-grid">
+    <div class="panel-header">
+      <h2>Audio</h2>
       <div class="audio-status">
         <span class="dot" id="audio-dot"></span>
         <span id="audio-label">Stopped</span>
       </div>
+    </div>
+    <div class="audio-grid">
       <div class="audio-controls">
         <button onclick="startAudio()">Start</button>
         <button class="danger" onclick="stopAudio()">Stop</button>
@@ -941,14 +923,6 @@ HTML_PAGE = r"""<!DOCTYPE html>
           <span id="volume-label" style="color:#00aaff; font-size:12px; min-width:30px;">70%</span>
         </div>
       </div>
-      <div class="audio-restart">
-        <button class="danger" onclick="restartAudio()" style="font-size:11px; padding:6px 10px; white-space:nowrap;">Restart</button>
-      </div>
-    </div>
-    <div id="test-row" class="audio-test" style="display:none;">
-      <button onclick="testSound('beep')">Beep</button>
-      <button onclick="testSound('kick')">Kick</button>
-      <button onclick="testSound('all_layers')">All Layers</button>
     </div>
   </div>
 
@@ -968,13 +942,6 @@ HTML_PAGE = r"""<!DOCTYPE html>
       <span class="dot" id="feed-dot"></span>
       <span id="feed-label">Feed: disconnected</span>
       <span style="margin-left:auto; color:#555;" id="event-count"></span>
-    </div>
-    <div class="row" style="margin-top:10px;">
-      <span style="color:#666; margin-right:4px;">Mode:</span>
-      <div class="mode-toggle">
-        <button id="btn-manual" onclick="setMode(false)">Manual</button>
-        <button id="btn-auto" onclick="setMode(true)">Autonomous</button>
-      </div>
     </div>
   </div>
 
@@ -1017,7 +984,12 @@ async function api(path, method='GET', body=null) {
 
 async function startAudio() {
   const track = document.getElementById('track-select').value;
-  log('Starting: ' + track);
+  if (lastStatus && lastStatus.audio_running) {
+    log('Restarting: ' + track);
+    await api('/api/stop', 'POST');
+  } else {
+    log('Starting: ' + track);
+  }
   const r = await api('/api/start', 'POST', {track});
   r.ok ? log('Audio on, port ' + r.osc_port) : log('ERR: ' + r.error);
 }
@@ -1038,11 +1010,6 @@ async function testSound(type) {
   const r = await api('/api/test-sound', 'POST', {type});
   r.ok ? log('Test sound: ' + type) : log('ERR: ' + r.error);
 }
-async function restartAudio() {
-  log('Restarting audio engine...');
-  const r = await api('/api/kill-all', 'POST');
-  r.ok ? log('Audio restarted. ' + r.message) : log('ERR: ' + r.error);
-}
 
 // ── Volume ──
 let volumeTimer = null;
@@ -1053,10 +1020,6 @@ function onVolumeChange(rawVal) {
   volumeTimer = setTimeout(async () => {
     await api('/api/volume', 'POST', {volume: pct / 100});
   }, 200);
-}
-async function setMode(auto) {
-  const r = await api('/api/autonomous', 'POST', {enabled: auto});
-  r.ok ? log(auto ? 'Autonomous mode' : 'Manual mode') : log('ERR: ' + r.error);
 }
 
 // ── URL play ──
@@ -1168,7 +1131,6 @@ function updateUI(s) {
   const ad = document.getElementById('audio-dot');
   ad.className = 'dot ' + (s.audio_running ? 'dot-on' : 'dot-off');
   document.getElementById('audio-label').textContent = s.audio_running ? 'Playing: ' + s.current_track : 'Stopped';
-  document.getElementById('test-row').style.display = s.audio_running ? '' : 'none';
 
   const sel = document.getElementById('track-select');
   if (sel.options.length === 0 && s.tracks) {
@@ -1181,9 +1143,6 @@ function updateUI(s) {
   document.getElementById('feed-dot').className = 'dot ' + (s.feed_running ? 'dot-on' : 'dot-off');
   document.getElementById('feed-label').textContent = s.feed_running ? 'Feed: connected' : 'Feed: disconnected';
   document.getElementById('event-count').textContent = s.event_rate ? s.event_rate + ' events' : '';
-
-  document.getElementById('btn-manual').className = s.autonomous ? '' : 'active';
-  document.getElementById('btn-auto').className = s.autonomous ? 'active-blue' : '';
 
   const np = document.getElementById('np');
   if (s.current_market) {
@@ -1244,6 +1203,8 @@ SANDBOX_PAGE = r"""<!DOCTYPE html>
 
   .panel { background: #12121a; border: 1px solid #222; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
   .panel h2 { color: #00aaff; font-size: 15px; margin-bottom: 12px; }
+  .panel-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .panel-header h2 { margin-bottom: 0; }
   .panel h3 { color: #ff9900; font-size: 13px; margin: 14px 0 8px 0; }
 
   .row { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
@@ -1734,7 +1695,6 @@ def create_app():
     app.router.add_post("/api/pin", handle_pin_market)
     app.router.add_post("/api/play-url", handle_play_url)
     app.router.add_post("/api/unpin", handle_unpin)
-    app.router.add_post("/api/autonomous", handle_autonomous)
     app.router.add_post("/api/kill-all", handle_kill_all)
     app.router.add_post("/api/volume", handle_volume)
     app.router.add_get("/api/browse", handle_browse)
