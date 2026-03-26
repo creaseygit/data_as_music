@@ -55,7 +55,6 @@ CloudFlare → Nginx → Python aiohttp (data only) ←→ Polymarket APIs
 | `frontend/ws-client.js`   | WebSocket client with auto-reconnect                                                                                  |
 | `frontend/audio-engine.js`| Strudel init, track registry, pattern lifecycle (AudioContext suspend/resume), silence handling, music theory utils    |
 | `frontend/tracks/*.js`    | Track files: `oracle.js` (alert piano), `mezzanine.js` (ambient dub), `just_vibes.js` (lo-fi hip hop). Uses `sound()`, `note()`, `stack()`, `<>` cycling, `struct()`, `degradeBy()` |
-| `frontend/samples/*.ogg`  | 206 OGG samples (CC0, from Freesound via Sonic Pi). Registered as Strudel sample bank                                |
 | `deploy/`                 | Nginx config, systemd service, EC2 setup script                                                                       |
 
 ## Tech Stack
@@ -77,5 +76,4 @@ For deeper context, read the relevant doc below. **Only load what you need for t
 | [`docs/live-finance.md`](docs/live-finance.md) | Rolling BTC/ETH market patterns (5m/15m/hourly), slug generation, auto-rotation logic | Working on live finance rotation, crypto browse tab, or slug matching |
 | [`docs/web-ui-and-api.md`](docs/web-ui-and-api.md) | UI sections, WebSocket protocol, API endpoints, background loops, deployment | Modifying the web UI, WebSocket protocol, API endpoints, or deployment config |
 | [`docs/gotchas.md`](docs/gotchas.md) | Known issues: Polymarket API, browse/config, legacy code | Hit a weird bug, need to understand non-obvious constraints |
-| [`docs/sonic-pi-integration.md`](docs/sonic-pi-integration.md) | Legacy Sonic Pi headless launcher (local dev only, not deployed) | Working with Sonic Pi locally for track prototyping |
 | [`docs/deployment.md`](docs/deployment.md) | Lightsail/Nginx/CloudFlare setup, deploy commands, systemd service, first-time provisioning | Deploying changes, server ops, infrastructure questions |

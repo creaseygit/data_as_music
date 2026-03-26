@@ -92,24 +92,16 @@ Add metadata as comments at the top of the file for the server to parse:
 `audio-engine.js` provides helpers (independent of Strudel):
 - `getScaleNotes(root, scaleType, count, octaves)` — Get scale notes
 - `midiToNote(midi)` / `noteToMidi(note)` — Convert between MIDI numbers and note names (`C#4`, `Bb3`)
-- `midiToHz(midi)` — Convert MIDI note to Hz. **Use this for all filter cutoff values** — Sonic Pi originals use MIDI note numbers for cutoff
+- `midiToHz(midi)` — Convert MIDI note to Hz. **Use this for all filter cutoff values** (MIDI note numbers, not Hz)
 - `noteToStrudel(noteName)` — Convert standard notation to Strudel format (`C#4` → `cs4`, `Bb3` → `bb3`)
 - `SCALES` — `{major, minor, major_pentatonic, minor_pentatonic, major7, minor7, m7minus5}` interval arrays
 
-## Sample Bank
+## Sounds
 
-206 CC0-licensed OGG samples from Freesound (same set bundled with Sonic Pi) are in `frontend/samples/`. They're registered with Strudel during `initStrudel()` — the server sends the full sample name list in the WebSocket `status` message.
-
-Use samples in patterns directly by name:
-```javascript
-sound("bd_fat").speed(0.85).lpf(370).gain(0.3)
-sound("sn_dub").speed(0.9).end(0.3).gain(0.15).room(0.5)
-sound("drum_cymbal_closed").speed(1.5).end(0.05).hpf(4200)
-```
-
-Strudel also has a built-in sampled **piano** (loaded from CDN on first use):
+Tracks use Strudel's built-in oscillators (`"sine"`, `"sawtooth"`, `"triangle"`) and a sampled **piano** loaded from the VCSL Salamander Grand Piano on CDN:
 ```javascript
 note("c4 e4 g4").sound("piano").gain(0.3).room(0.5)
+note("<c2 f2>").sound("sawtooth").lpf(200).gain(0.1)
 ```
 
 ## Synth Reference
@@ -120,23 +112,17 @@ note("c4 e4 g4").sound("piano").gain(0.3).room(0.5)
 | `"sine"` | `.sound("sine")` | Pure sine. Good for sub bass |
 | `"sawtooth"` | `.sound("sawtooth")` | Saw wave. Good for bass lines, pads with `.lpf()` |
 | `"triangle"` | `.sound("triangle")` | Triangle wave. Good for plucks, arps, pads |
-| samples | `sound("bd_fat")` | Custom OGG samples: `bd_fat`, `sn_dub`, `drum_cymbal_closed`, etc. |
+## Strudel Effects Reference
 
-## Sonic Pi → Strudel Parameter Mapping
-
-| Sonic Pi | Strudel | Notes |
+| Effect | Usage | Notes |
 | --- | --- | --- |
-| `amp:` | `.gain(value)` | Direct mapping |
-| `rate:` | `.speed(value)` | Sample playback rate |
-| `finish:` | `.end(value)` | Fraction of sample to play (0-1) |
-| `cutoff:` (MIDI) | `.lpf(midiToHz(value))` | Always convert with `midiToHz()` |
-| `pan:` (-1 to 1) | `.pan(value)` | Strudel: 0=left, 0.5=center, 1=right |
-| `attack:`, `release:` | `.attack(s)`, `.release(s)` | Direct mapping |
-| `with_fx :reverb, room:` | `.room(amount)`, `.rsize(size)` | `room` = wet mix, `rsize` = decay time |
-| `with_fx :echo, phase:, decay:` | `.delay(wet)`, `.delaytime(s)`, `.delayfeedback(fb)` | |
-| `with_fx :lpf, cutoff:` | `.lpf(midiToHz(cutoff))` | |
-| `with_fx :hpf, cutoff:` | `.hpf(midiToHz(cutoff))` | |
-| `res:` (tb303) | `.lpq(value)` | Filter Q/resonance |
+| Low-pass filter | `.lpf(hz)` | Use `midiToHz()` if converting from MIDI note numbers |
+| High-pass filter | `.hpf(hz)` | |
+| Reverb | `.room(amount)`, `.rsize(size)` | `room` = wet mix, `rsize` = decay time |
+| Delay/echo | `.delay(wet)`, `.delaytime(s)`, `.delayfeedback(fb)` | |
+| Pan | `.pan(value)` | 0=left, 0.5=center, 1=right |
+| Envelope | `.attack(s)`, `.release(s)` | |
+| Filter resonance | `.lpq(value)` | |
 
 ## Strudel Pattern Basics
 
@@ -197,4 +183,4 @@ Lo-fi hip hop, 75 BPM. Bullish: Fmaj7→Em7→Dm7→Cmaj7. Bearish: Dm7→Bbmaj7
 
 ## Legacy References
 
-- **Sonic Pi originals:** `sonic_pi/*.rb` — The source of truth for musical content. All Strudel tracks are ported from these, using the mastered amp values (with `~nf` normalization factors applied).
+- **Sonic Pi originals** were removed from the repo (Strudel migration complete). Git history has them if needed.

@@ -30,5 +30,3 @@
 ## Legacy / Deprecated
 - **console.py and main.py are stale** — Import old OSC/Sonic Pi modules. Legacy files, not used by the web server
 - **mixer/state.py and mixer/transitions.py are deprecated** — Leftover from earlier multi-layer architecture, not used
-- **osc/bridge.py and sonic_pi/headless.py** — Kept for local Sonic Pi development, not deployed
-- **sonic_pi/*.rb tracks** — Original Sonic Pi tracks, kept for reference. Web version uses `frontend/tracks/*.js`
