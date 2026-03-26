@@ -41,45 +41,45 @@ const mezzanineTrack = (() => {
       const layers = [
         // sub bass
         note(ROOTS).sound("sine")
-          .gain(0.04 + h * 0.02)
+          .gain(0.12 + h * 0.04)
           .lpf(196)
-          .attack(0.2).sustain(0.9).release(0.8),
+          .attack(0.15).decay(0.4).sustain(0.7).release(0.3),
 
-        // bass line (tb303-style)
+        // bass line (sawtooth)
         note(BASS).sound("sawtooth")
-          .gain(0.04 + h * 0.03)
+          .gain(0.08 + h * 0.04)
           .lpf(midiToHz(48 + pr * 25)).lpq(5)
-          .decay(0.3).release(0.1),
+          .decay(0.25).release(0.1),
 
         // teardrop arp — degradeBy for ghost-note dropouts
         note(arp).sound("triangle")
-          .gain(Math.max(0.03, 0.07 - h * 0.03))
+          .gain(Math.max(0.04, 0.08 - h * 0.03))
           .lpf(midiToHz(75 + pr * 15))
-          .decay(0.15).release(1.5)
-          .room(0.6).roomlp(3000)
+          .decay(0.12).release(0.5)
+          .room(0.35).roomlp(3000)
           .degradeBy(0.12),
 
         // kick on 1 & 3
         sound("bd").struct("x ~ x ~")
-          .speed(0.85).lpf(370)
-          .gain(0.32 + h * 0.24),
+          .speed(0.85).end(0.35).lpf(370)
+          .gain(0.12 + h * 0.06),
 
         // snare on 3
         sound("sd").struct("~ ~ x ~")
-          .speed(0.9).end(0.3)
-          .gain(0.06 + h * 0.05)
-          .room(0.5),
+          .speed(0.9).end(0.25)
+          .gain(0.08 + h * 0.04)
+          .room(0.3),
 
-        // vinyl dust
+        // vinyl dust — clipped pink noise
         sound("pink").slow(2)
-          .speed(0.8).gain(0.22),
+          .end(0.5).gain(0.06),
 
         // dub wash pad — slow(1.5) drifts against the 8-bar cycle
         note(PAD).sound("triangle")
-          .gain(Math.max(0.04, 0.13 - h * 0.07))
+          .gain(Math.max(0.05, 0.10 - h * 0.04))
           .lpf(midiToHz(55 + pr * 20))
-          .attack(3).release(5)
-          .room(0.75).slow(1.5),
+          .attack(1.5).decay(0.5).release(1.0)
+          .room(0.4).slow(1.5),
       ];
 
       // ── Activity-gated layers (market data drives structure) ──
@@ -88,8 +88,8 @@ const mezzanineTrack = (() => {
       if (tr > 0.4) {
         layers.push(
           sound("bd").struct("~ x ~ ~")
-            .speed(0.8).lpf(250)
-            .gain((0.32 + h * 0.24) * 0.4)
+            .speed(0.8).end(0.25).lpf(250)
+            .gain(0.06)
         );
       }
 
@@ -97,8 +97,8 @@ const mezzanineTrack = (() => {
       if (tr > 0.3) {
         layers.push(
           sound("bd").struct("~ ~ x ~ ~ x ~ ~")
-            .speed(0.75).lpf(196)
-            .gain(0.10 + h * 0.08)
+            .speed(0.75).end(0.2).lpf(196)
+            .gain(0.05 + h * 0.03)
         );
       }
 
@@ -106,17 +106,17 @@ const mezzanineTrack = (() => {
       if (tr > 0.5) {
         layers.push(
           sound("sd").struct("~ ~ ~ x").slow(2)
-            .speed(1.0).end(0.2).gain(0.04)
-            .room(0.6).degradeBy(0.6)
+            .speed(1.0).end(0.15).gain(0.05)
+            .room(0.3).degradeBy(0.6)
         );
       }
 
-      // rim tick — 16-step pattern (16 elements = 16th notes natively)
+      // rim tick — cowbell as subtle tick
       if (tr > 0.25) {
         layers.push(
           sound("cb").struct("~ ~ ~ x ~ ~ x ~ ~ ~ x ~ ~ x ~ ~")
             .speed(2.5).end(0.04)
-            .gain(0.016 + h * 0.016)
+            .gain(0.05 + h * 0.03)
             .pan(sine.range(0.35, 0.65).slow(4))
         );
       }
@@ -125,9 +125,9 @@ const mezzanineTrack = (() => {
       if (tr > 0.15) {
         layers.push(
           sound("hh")
-            .gain(rand.range(0.05, 0.15))
+            .gain(rand.range(0.06, 0.12))
             .speed(rand.range(1.2, 1.8))
-            .end(0.05).hpf(4200)
+            .end(0.04).hpf(4200)
             .pan(rand.range(0.1, 0.9))
             .fast(tr > 0.6 ? 4 : 2)
             .degradeBy(0.65 - tr * 0.35)
@@ -139,10 +139,10 @@ const mezzanineTrack = (() => {
         const deepNotes = t === 1 ? "<a3 c4 e4>" : "<a3 c4 gs3>";
         layers.push(
           note(deepNotes).sound("sawtooth")
-            .gain(0.15 + v * 0.15)
-            .lpf(370).attack(1).release(3)
-            .delay(0.6).delaytime(0.75).delayfeedback(0.5)
-            .room(0.5).slow(2.5)
+            .gain(0.06 + v * 0.06)
+            .lpf(370).attack(0.5).decay(0.8).release(1.5)
+            .delay(0.4).delaytime(0.5).delayfeedback(0.25)
+            .room(0.3).slow(2.5)
         );
       }
 
@@ -155,10 +155,10 @@ const mezzanineTrack = (() => {
         layers.push(
           note(driftNotes.map(n => noteToStrudel(n)).join(" "))
             .sound("triangle")
-            .gain(Math.min(0.26, 0.07 + mag * 0.22))
-            .decay(0.2).release(2)
-            .delay(0.5).delaytime(0.5).delayfeedback(0.45)
-            .room(0.75)
+            .gain(Math.min(0.15, 0.08 + mag * 0.10))
+            .decay(0.15).release(0.8)
+            .delay(0.3).delaytime(0.4).delayfeedback(0.2)
+            .room(0.4)
         );
       }
 
@@ -166,9 +166,9 @@ const mezzanineTrack = (() => {
       if (data.ambient_mode === 1) {
         layers.push(
           note("<a2 e3 a3>").sound("sawtooth")
-            .gain(0.4).lpf(250)
-            .attack(4).release(8)
-            .room(0.85).slow(2)
+            .gain(0.1).lpf(250)
+            .attack(2).decay(1).release(2)
+            .room(0.5).slow(2)
         );
       }
 
@@ -184,7 +184,7 @@ const mezzanineTrack = (() => {
         if (now - lastSpikeAt < 15000) return null;
         lastSpikeAt = now;
         return sound("hh")
-          .speed(0.5).gain(0.15).room(0.6);
+          .speed(0.6).end(0.15).gain(0.12).room(0.3);
       }
 
       if (type === "price_move") {
@@ -192,10 +192,10 @@ const mezzanineTrack = (() => {
         const num = Math.min(7, Math.max(3, 3 + Math.floor(mag * 7)));
         const ns  = msg.direction > 0 ? sc.slice(0, num) : sc.slice(0, num).reverse();
         return note(ns.map(n => noteToStrudel(n)).join(" "))
-          .sound("piano")
-          .gain(Math.min(0.1, 0.04 + mag * 0.12))
-          .delay(0.5).delaytime(0.75).delayfeedback(0.5)
-          .room(0.8);
+          .sound("piano").end(1.5)
+          .gain(Math.min(0.15, 0.08 + mag * 0.10))
+          .delay(0.3).delaytime(0.5).delayfeedback(0.2)
+          .room(0.4);
       }
 
       if (type === "resolved") {
@@ -204,9 +204,9 @@ const mezzanineTrack = (() => {
           ? getScaleNotes("A4", "major", 8, 1)
           : getScaleNotes("A4", "minor", 8, 1).reverse();
         return note(sc.map(n => noteToStrudel(n)).join(" "))
-          .sound("piano").gain(0.1)
-          .delay(0.4).delaytime(0.5).delayfeedback(0.4)
-          .room(0.8);
+          .sound("piano").end(1.5).gain(0.12)
+          .delay(0.3).delaytime(0.4).delayfeedback(0.2)
+          .room(0.4);
       }
 
       return null;

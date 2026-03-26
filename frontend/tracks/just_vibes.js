@@ -37,44 +37,44 @@ const justVibesTrack = (() => {
 
       // ── Always-on layers ──
       const layers = [
-        // vinyl dust
+        // vinyl dust — pink noise, clipped short so it doesn't bleed
         sound("pink").slow(2)
-          .speed(0.7).gain(0.25),
+          .end(0.5).gain(0.08),
 
         // kick on 1 & 3
         sound("bd").struct("x ~ x ~")
-          .speed(0.8).lpf(250)
-          .gain(0.29 + h * 0.16),
+          .speed(0.8).end(0.3).lpf(250)
+          .gain(0.12 + h * 0.06),
 
         // snare on 2
         sound("sd").struct("~ x ~ ~")
-          .speed(0.85).end(0.25)
-          .gain(0.05 + h * 0.03)
-          .room(0.55),
+          .speed(0.85).end(0.2)
+          .gain(0.08 + h * 0.04)
+          .room(0.3),
 
         // ghost snare — 15% play chance
         sound("sd").struct("~ ~ ~ x").slow(2)
-          .speed(0.9).end(0.15).gain(0.02)
-          .room(0.65).degradeBy(0.85),
+          .speed(0.9).end(0.12).gain(0.04)
+          .room(0.3).degradeBy(0.85),
 
         // sub bass
         note(maj ? ROOTS_MAJ : ROOTS_MIN).sound("sine")
-          .gain(0.013 + h * 0.005)
+          .gain(0.12 + h * 0.04)
           .lpf(165)
-          .attack(0.15).sustain(0.8).release(0.8),
+          .attack(0.1).decay(0.4).sustain(0.6).release(0.3),
 
-        // bass line (tb303-style)
+        // bass line (sawtooth)
         note(maj ? BASS_MAJ : BASS_MIN).sound("sawtooth")
-          .gain(0.018 + h * 0.01)
+          .gain(0.08 + h * 0.04)
           .lpf(midiToHz(52 + pr * 18)).lpq(3.6)
-          .decay(0.25).release(0.1),
+          .decay(0.2).release(0.1),
 
         // pad wash — slow(1.5) drifts against the 4-bar cycle
         note(maj ? PAD_MAJ : PAD_MIN).sound("triangle")
-          .gain(Math.max(0.07, 0.26 - h * 0.12))
+          .gain(Math.max(0.06, 0.12 - h * 0.05))
           .lpf(midiToHz(58 + pr * 18))
-          .attack(2.5).release(5)
-          .room(0.7).slow(1.5),
+          .attack(1.0).decay(0.5).release(1.0)
+          .room(0.4).slow(1.5),
       ];
 
       // ── Activity-gated layers ──
@@ -83,8 +83,8 @@ const justVibesTrack = (() => {
       if (tr > 0.4) {
         layers.push(
           sound("bd").struct("~ x ~ ~").slow(2)
-            .speed(0.75).lpf(165)
-            .gain((0.29 + h * 0.16) * 0.25)
+            .speed(0.75).end(0.25).lpf(165)
+            .gain(0.06)
             .degradeBy(0.75)
         );
       }
@@ -93,7 +93,7 @@ const justVibesTrack = (() => {
       if (tr > 0.15) {
         layers.push(
           sound("hh")
-            .gain(rand.range(0.03, 0.09))
+            .gain(rand.range(0.06, 0.12))
             .speed(rand.range(1.3, 1.7))
             .end(0.04).hpf(3600)
             .pan(rand.range(0.2, 0.8))
@@ -102,11 +102,11 @@ const justVibesTrack = (() => {
         );
       }
 
-      // rim tick — 16-step pattern
+      // rim tick — cowbell as subtle tick
       if (tr > 0.2) {
         layers.push(
           sound("cb").struct("~ ~ ~ x ~ ~ x ~ ~ ~ ~ x ~ x ~ ~")
-            .speed(2.8).end(0.03).gain(0.01)
+            .speed(2.8).end(0.03).gain(0.05)
             .pan(sine.range(0.4, 0.6).slow(4))
         );
       }
@@ -115,9 +115,9 @@ const justVibesTrack = (() => {
       if (v > 0.25) {
         layers.push(
           note(maj ? DEEP_MAJ : DEEP_MIN).sound("sawtooth")
-            .gain(0.63 + v * 0.63)
-            .lpf(280).attack(1.5).release(4)
-            .delay(0.5).delaytime(1.0).delayfeedback(0.35)
+            .gain(0.06 + v * 0.06)
+            .lpf(280).attack(0.8).decay(1.0).release(1.5)
+            .delay(0.4).delaytime(0.75).delayfeedback(0.25)
             .slow(2.5)
         );
       }
@@ -130,9 +130,9 @@ const justVibesTrack = (() => {
         const ns = pd > 0 ? sc.slice(0, num) : sc.slice(0, num).reverse();
         layers.push(
           note(ns.map(n => noteToStrudel(n)).join(" "))
-            .sound("piano")
-            .gain(Math.min(0.1, 0.04 + mag * 0.1))
-            .room(0.75)
+            .sound("piano").end(1.5)
+            .gain(Math.min(0.15, 0.08 + mag * 0.1))
+            .room(0.4)
         );
       }
 
@@ -140,9 +140,9 @@ const justVibesTrack = (() => {
       if (data.ambient_mode === 1) {
         layers.push(
           note("<f2 c3 f3>").sound("sawtooth")
-            .gain(1.5).lpf(230)
-            .attack(4).release(8)
-            .room(0.85).slow(2)
+            .gain(0.1).lpf(230)
+            .attack(2).decay(1).release(2)
+            .room(0.5).slow(2)
         );
       }
 
@@ -157,7 +157,7 @@ const justVibesTrack = (() => {
         if (now - lastSpikeAt < 15000) return null;
         lastSpikeAt = now;
         return sound("hh")
-          .speed(0.45).gain(0.11).room(0.65);
+          .speed(0.6).end(0.15).gain(0.12).room(0.3);
       }
 
       if (type === "price_move") {
@@ -165,9 +165,9 @@ const justVibesTrack = (() => {
         const sc = getScaleNotes(root, t === 1 ? "major" : "minor", 7, 2);
         const ns = msg.direction > 0 ? sc : sc.slice().reverse();
         return note(ns.map(n => noteToStrudel(n)).join(" "))
-          .sound("piano").gain(0.08)
-          .delay(0.45).delaytime(0.75).delayfeedback(0.3)
-          .room(0.8);
+          .sound("piano").end(1.5).gain(0.12)
+          .delay(0.3).delaytime(0.5).delayfeedback(0.2)
+          .room(0.4);
       }
 
       if (type === "resolved") {
@@ -176,9 +176,9 @@ const justVibesTrack = (() => {
         let sc = getScaleNotes(root, r === 1 ? "major" : "minor", 8, 1);
         if (r !== 1) sc = sc.reverse();
         return note(sc.map(n => noteToStrudel(n)).join(" "))
-          .sound("piano").gain(0.08)
-          .delay(0.4).delaytime(0.5).delayfeedback(0.3)
-          .room(0.8);
+          .sound("piano").end(1.5).gain(0.12)
+          .delay(0.3).delaytime(0.4).delayfeedback(0.2)
+          .room(0.4);
       }
 
       return null;
