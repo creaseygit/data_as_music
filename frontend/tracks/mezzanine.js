@@ -60,18 +60,18 @@ const mezzanineTrack = (() => {
           .degradeBy(0.12),
 
         // kick on 1 & 3
-        sound("bd_fat").struct("x ~ x ~")
+        sound("bd").struct("x ~ x ~")
           .speed(0.85).lpf(370)
           .gain(0.32 + h * 0.24),
 
         // snare on 3
-        sound("sn_dub").struct("~ ~ x ~")
+        sound("sd").struct("~ ~ x ~")
           .speed(0.9).end(0.3)
           .gain(0.06 + h * 0.05)
           .room(0.5),
 
         // vinyl dust
-        sound("vinyl_hiss").slow(2)
+        sound("pink").slow(2)
           .speed(0.8).gain(0.22),
 
         // dub wash pad — slow(1.5) drifts against the 8-bar cycle
@@ -87,7 +87,7 @@ const mezzanineTrack = (() => {
       // ghost kick on beat 2
       if (tr > 0.4) {
         layers.push(
-          sound("bd_fat").struct("~ x ~ ~")
+          sound("bd").struct("~ x ~ ~")
             .speed(0.8).lpf(250)
             .gain((0.32 + h * 0.24) * 0.4)
         );
@@ -96,7 +96,7 @@ const mezzanineTrack = (() => {
       // ghost kick 8th-note pattern
       if (tr > 0.3) {
         layers.push(
-          sound("bd_fat").struct("~ ~ x ~ ~ x ~ ~")
+          sound("bd").struct("~ ~ x ~ ~ x ~ ~")
             .speed(0.75).lpf(196)
             .gain(0.10 + h * 0.08)
         );
@@ -105,7 +105,7 @@ const mezzanineTrack = (() => {
       // ghost snare — 40% play chance via degradeBy
       if (tr > 0.5) {
         layers.push(
-          sound("sn_dub").struct("~ ~ ~ x").slow(2)
+          sound("sd").struct("~ ~ ~ x").slow(2)
             .speed(1.0).end(0.2).gain(0.04)
             .room(0.6).degradeBy(0.6)
         );
@@ -114,7 +114,7 @@ const mezzanineTrack = (() => {
       // rim tick — 16-step pattern (16 elements = 16th notes natively)
       if (tr > 0.25) {
         layers.push(
-          sound("drum_cowbell").struct("~ ~ ~ x ~ ~ x ~ ~ ~ x ~ ~ x ~ ~")
+          sound("cb").struct("~ ~ ~ x ~ ~ x ~ ~ ~ x ~ ~ x ~ ~")
             .speed(2.5).end(0.04)
             .gain(0.016 + h * 0.016)
             .pan(sine.range(0.35, 0.65).slow(4))
@@ -124,7 +124,7 @@ const mezzanineTrack = (() => {
       // hi-hat — sparse, probabilistic
       if (tr > 0.15) {
         layers.push(
-          sound("drum_cymbal_closed")
+          sound("hh")
             .gain(rand.range(0.05, 0.15))
             .speed(rand.range(1.2, 1.8))
             .end(0.05).hpf(4200)
@@ -183,7 +183,7 @@ const mezzanineTrack = (() => {
         const now = Date.now();
         if (now - lastSpikeAt < 15000) return null;
         lastSpikeAt = now;
-        return sound("drum_cymbal_soft")
+        return sound("hh")
           .speed(0.5).gain(0.15).room(0.6);
       }
 

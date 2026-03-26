@@ -112,6 +112,11 @@ note("<c2 f2>").sound("sawtooth").lpf(200).gain(0.1)
 | `"sine"` | `.sound("sine")` | Pure sine. Good for sub bass |
 | `"sawtooth"` | `.sound("sawtooth")` | Saw wave. Good for bass lines, pads with `.lpf()` |
 | `"triangle"` | `.sound("triangle")` | Triangle wave. Good for plucks, arps, pads |
+| `"pink"` | `.sound("pink")` | Pink noise synth. Good for vinyl hiss / texture |
+| `"bd"` | `.sound("bd")` | Kick drum (Dirt-Samples, 24 variants via `bd:0`–`bd:23`) |
+| `"sd"` | `.sound("sd")` | Snare drum (Dirt-Samples, 2 variants) |
+| `"hh"` | `.sound("hh")` | Closed hi-hat (Dirt-Samples, 13 variants) |
+| `"cb"` | `.sound("cb")` | Cowbell (Dirt-Samples) |
 ## Strudel Effects Reference
 
 | Effect | Usage | Notes |

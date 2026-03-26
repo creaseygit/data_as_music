@@ -38,22 +38,22 @@ const justVibesTrack = (() => {
       // ── Always-on layers ──
       const layers = [
         // vinyl dust
-        sound("vinyl_hiss").slow(2)
+        sound("pink").slow(2)
           .speed(0.7).gain(0.25),
 
         // kick on 1 & 3
-        sound("bd_fat").struct("x ~ x ~")
+        sound("bd").struct("x ~ x ~")
           .speed(0.8).lpf(250)
           .gain(0.29 + h * 0.16),
 
         // snare on 2
-        sound("sn_dub").struct("~ x ~ ~")
+        sound("sd").struct("~ x ~ ~")
           .speed(0.85).end(0.25)
           .gain(0.05 + h * 0.03)
           .room(0.55),
 
         // ghost snare — 15% play chance
-        sound("sn_dub").struct("~ ~ ~ x").slow(2)
+        sound("sd").struct("~ ~ ~ x").slow(2)
           .speed(0.9).end(0.15).gain(0.02)
           .room(0.65).degradeBy(0.85),
 
@@ -82,7 +82,7 @@ const justVibesTrack = (() => {
       // rare kick ghost — 25% play chance
       if (tr > 0.4) {
         layers.push(
-          sound("bd_fat").struct("~ x ~ ~").slow(2)
+          sound("bd").struct("~ x ~ ~").slow(2)
             .speed(0.75).lpf(165)
             .gain((0.29 + h * 0.16) * 0.25)
             .degradeBy(0.75)
@@ -92,7 +92,7 @@ const justVibesTrack = (() => {
       // hi-hat — sparse, probabilistic
       if (tr > 0.15) {
         layers.push(
-          sound("drum_cymbal_closed")
+          sound("hh")
             .gain(rand.range(0.03, 0.09))
             .speed(rand.range(1.3, 1.7))
             .end(0.04).hpf(3600)
@@ -105,7 +105,7 @@ const justVibesTrack = (() => {
       // rim tick — 16-step pattern
       if (tr > 0.2) {
         layers.push(
-          sound("drum_cowbell").struct("~ ~ ~ x ~ ~ x ~ ~ ~ ~ x ~ x ~ ~")
+          sound("cb").struct("~ ~ ~ x ~ ~ x ~ ~ ~ ~ x ~ x ~ ~")
             .speed(2.8).end(0.03).gain(0.01)
             .pan(sine.range(0.4, 0.6).slow(4))
         );
@@ -156,7 +156,7 @@ const justVibesTrack = (() => {
         const now = Date.now();
         if (now - lastSpikeAt < 15000) return null;
         lastSpikeAt = now;
-        return sound("drum_cymbal_soft")
+        return sound("hh")
           .speed(0.45).gain(0.11).room(0.65);
       }
 
