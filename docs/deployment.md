@@ -2,10 +2,12 @@
 
 ## Infrastructure
 
-- **Hosting:** AWS Lightsail ($7/mo, 1GB) in `us-east-1`
+- **Hosting:** AWS Lightsail (1GB) in `us-east-1`
 - **Reverse proxy:** Nginx on the instance
 - **CDN/DNS/HTTPS:** CloudFlare (handles SSL termination)
 - **Domain:** Configured in CloudFlare DNS → Lightsail public IP
+
+Connection details (IP, SSH key path, CloudFlare credentials) are in `.env` (gitignored).
 
 ## Instance Layout
 
@@ -22,28 +24,23 @@
 
 The app runs as a systemd service under the `ubuntu` user.
 
-## SSH Access
-
-```bash
-ssh -i ~/.ssh/lightsail-polymarket-dj.pem ubuntu@3.210.159.215
-```
-
-The instance has a GitHub deploy key (`~/.ssh/deploy_key`) configured via `~/.ssh/config`, with the remote set to `git@github.com:creaseygit/polymarket_dj.git` (SSH).
-
 ## Deploying Changes
 
 After pushing to GitHub:
 
 ```bash
-ssh -i ~/.ssh/lightsail-polymarket-dj.pem ubuntu@3.210.159.215 \
-  "cd /opt/polymarket_dj && git pull && sudo systemctl restart polymarket-dj"
+source .env
+ssh -i $LIGHTSAIL_KEY $LIGHTSAIL_USER@$LIGHTSAIL_IP \
+  "cd $DEPLOY_PATH && git pull && sudo systemctl restart polymarket-dj"
 ```
+
+The instance has a GitHub deploy key (`~/.ssh/deploy_key`) configured via `~/.ssh/config` so `git pull` works over SSH.
 
 For changes that only affect `frontend/` static files (JS, CSS, HTML), the restart is still needed because `server.py` serves `index.html` directly and discovers tracks at startup.
 
 ## Useful Commands
 
-All commands below assume you've SSH'd into the instance (see above), or prefix with the full ssh command.
+All commands below assume you've SSH'd into the instance, or prefix with `ssh -i $LIGHTSAIL_KEY $LIGHTSAIL_USER@$LIGHTSAIL_IP`.
 
 ```bash
 # Check if the service is running
@@ -68,10 +65,6 @@ After setup:
 1. Point your domain to the instance's public IP in CloudFlare
 2. Update `server_name` in the Nginx config if using a custom domain
 3. Ensure the Lightsail firewall allows ports 80 and 443
-
-## CloudFlare
-
-DNS and CDN are managed via CloudFlare. API credentials are stored in `~/.bashrc` environment variables on the local dev machine (see memory reference for zone ID details).
 
 ## Notes
 
