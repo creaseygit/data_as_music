@@ -25,7 +25,7 @@ The server maintains shared Polymarket WebSocket subscriptions via reference cou
 
 | type | payload | when |
 |------|---------|------|
-| `status` | `{tracks: [...], categories: [...]}` | On connect |
+| `status` | `{tracks: [...], categories: [...], samples: [...]}` | On connect |
 | `market_data` | `{heat, price, price_delta, velocity, trade_rate, spread, tone, sensitivity}` | Every 3s |
 | `event` | `{event: "spike"\|"price_move"\|"resolved", direction?, result?}` | On threshold |
 | `market_info` | `{question, slug, event_slug, outcomes, link}` | On market change |

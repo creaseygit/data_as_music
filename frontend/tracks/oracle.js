@@ -1,175 +1,81 @@
-// ── Oracle Track ──────────────────────────────────────────
+// ── Oracle Track (Strudel) ───────────────────────────────
 // Alert track. Piano motifs respond to price movement.
-// Faithful port of sonic_pi/oracle.rb.
+// Ported from sonic_pi/oracle.rb (the original, not the Tone.js version).
 // category: 'alert', label: 'Oracle'
+//
+// Original Sonic Pi: set_volume! 0.3, uses :piano synth with hard/vel params.
+// Piano mapped to FM synthesis: low fmi for warmth, fast fmdecay for hammer strike.
 
-class OracleTrack {
-  constructor(destination) {
-    this.destination = destination;
-    this.data = {
-      price_delta: 0,
-      tone: 1,
-      velocity: 0.1,
-      trade_rate: 0.2,
-    };
+const oracleTrack = {
+  name: 'oracle',
+  label: 'Oracle',
+  category: 'alert',
 
-    // No volumeScale needed — masterGain (0.7) handles global level
+  init() {},
 
-    // Reverb: Sonic Pi room: 0.6, damp: 0.5
-    this.reverb = new Tone.Reverb({
-      decay: 3,
-      wet: 0.6,
-    }).connect(destination);
-
-    // Pre-generate the reverb impulse response
-    this.reverb.generate();
-
-    // Lowpass to approximate Sonic Pi damp: 0.5 on the reverb tail
-    this.dampFilter = new Tone.Filter({
-      frequency: 3000,
-      type: 'lowpass',
-      rolloff: -12,
-    }).connect(this.reverb);
-
-    // Active voices for cleanup
-    this._activeVoices = [];
-
-    // Main loop: every 3 seconds, evaluate and possibly play a motif
-    this.loop = new Tone.Loop((time) => this._tick(time), '3s');
-  }
-
-  start() {
-    this.loop.start(0);
-  }
-
-  stop() {
-    this.loop.stop();
-    this._activeVoices.forEach((v) => {
-      try { v.synth.dispose(); } catch (_) {}
-      try { v.panner.dispose(); } catch (_) {}
-    });
-    this._activeVoices = [];
-    this.dampFilter.disconnect();
-    this.reverb.disconnect();
-    this.dampFilter.dispose();
-    this.reverb.dispose();
-  }
-
-  update(data) {
-    this.data = { ...this.data, ...data };
-  }
-
-  onEvent(_type, _msg) {
-    // Oracle relies on the main loop; no special event handling.
-  }
-
-  /**
-   * Build a piano-like FM synth voice.
-   *
-   * Sonic Pi :piano is a physical modeling synth with `hard` (hammer
-   * hardness / brightness) and `vel` (velocity / dynamics).
-   *
-   * FM piano approximation (inspired by DX7 E.Piano):
-   * - Low modulationIndex (1-3) for warm tone, not metallic bells
-   * - Very fast modulation envelope — brightness dies quickly like
-   *   a real hammer strike (short mod decay = bright transient only)
-   * - Carrier envelope with natural piano-like decay curve
-   * - harmonicity: 2 (octave relationship) for clean overtones
-   */
-  _makeVoice(hard, vel, pan) {
-    const panner = new Tone.Panner(pan).connect(this.dampFilter);
-
-    const synth = new Tone.FMSynth({
-      harmonicity: 2,
-      // hard 0.1-0.3 → modIndex 1.4-2.2 (warm piano, not metallic)
-      // Previous: 2 + hard * 10 = 3-5 (way too metallic/bell-like)
-      modulationIndex: 1 + hard * 4,
-      oscillator: { type: 'sine' },
-      modulation: { type: 'sine' },
-      envelope: {
-        attack: 0.003,
-        // vel drives sustain length: higher velocity = longer ring
-        decay: 0.5 + vel * 0.6,
-        sustain: 0.12,
-        release: 1.5,
-      },
-      modulationEnvelope: {
-        // Very fast mod envelope = bright attack transient that dies quickly
-        // This is the key to piano-like FM: brightness only on the hammer strike
-        attack: 0.001,
-        decay: 0.06 + hard * 0.12,   // hard → slightly longer brightness
-        sustain: 0.0,
-        release: 0.15,
-      },
-    }).connect(panner);
-
-    return { synth, panner };
-  }
-
-  _tick(time) {
-    const d = this.data;
-    const pd = d.price_delta;
+  pattern(data) {
+    const pd = data.price_delta || 0;
+    const v = data.velocity || 0.1;
+    const tr = data.trade_rate || 0.2;
+    const t = data.tone !== undefined ? data.tone : 1;
     const mag = Math.abs(pd);
 
-    // Sonic Pi: if mag > 0.1 … else just sleep 3
-    if (mag <= 0.1) return;
+    // Sonic Pi: if mag > 0.1 ... else just sleep 3
+    if (mag <= 0.1) return null;
 
     // Root and scale
-    const root = d.tone === 1 ? 'C4' : 'A3';
-    const scaleType = d.tone === 1 ? 'major' : 'minor';
+    const root = t === 1 ? 'C4' : 'A3';
+    const scaleType = t === 1 ? 'major' : 'minor';
 
     // num = clamp(2 + floor(mag * 6), 2, 6)
     const numNotes = Math.min(6, Math.max(2, 2 + Math.floor(mag * 6)));
 
-    // Build note array (2 octaves of scale, take numNotes)
+    // Build note array
     let notes = getScaleNotes(root, scaleType, numNotes, 2);
     if (pd < 0) notes = notes.slice().reverse();
 
-    // activity = clamp(0.5 + velocity * 0.3 + trade_rate * 0.2, 0, 1)
-    const activity = Math.min(1.0, 0.5 + d.velocity * 0.3 + d.trade_rate * 0.2);
+    // Sonic Pi: activity = [0.3 + (v * 0.4) + (tr * 0.3), 1.0].min
+    const activity = Math.min(1.0, 0.3 + v * 0.4 + tr * 0.3);
 
-    // vol = clamp(0.12 + mag * 0.35, 0.12, 0.30) * activity
-    const vol = Math.min(0.30, Math.max(0.12, 0.12 + mag * 0.35)) * activity;
+    // Sonic Pi: vol = [[0.02 + (mag * 0.06), 0.02].max, 0.05].min * activity
+    const vol = Math.min(0.05, Math.max(0.02, 0.02 + mag * 0.06)) * activity;
 
-    // hard = clamp(0.1 + mag * 0.4, 0.1, 0.3)
+    // Sonic Pi: hard = [[0.1 + (mag * 0.4), 0.1].max, 0.3].min
     const hard = Math.min(0.3, Math.max(0.1, 0.1 + mag * 0.4));
 
-    // vel = 0.2 + mag * 0.5
+    // Sonic Pi: vel: 0.2 + (mag * 0.5)
     const vel = 0.2 + mag * 0.5;
 
-    // Play each note with 0.3s spacing, per-note panning and amplitude envelope
-    notes.forEach((note, i) => {
-      const frac = notes.length > 1 ? i / (notes.length - 1) : 0;
+    // FM piano approximation of Sonic Pi :piano
+    // low fmi = warm tone, fmdecay = hammer brightness
+    const fmi = 0.5 + hard * 3;  // hard 0.1-0.3 → fmi 0.8-1.4 (warm, not metallic)
 
-      // Sonic Pi: amp_env * 0.95
-      const ampEnv = pd > 0
-        ? vol * (0.7 + frac * 0.3)
-        : vol * (1.0 - frac * 0.3);
-      const amp = ampEnv * 0.95;
+    // Build note pattern with per-note dynamics
+    const strudelNotes = notes.map(n => noteToStrudel(n)).join(' ');
 
-      // Pan: (frac - 0.5) * 0.3
-      const pan = (frac - 0.5) * 0.3;
+    // Sonic Pi uses with_fx :reverb, room: 0.6, damp: 0.5
+    // Per-note: amp_env * 0.95, pan: (frac - 0.5) * 0.3
+    // Notes play with 0.3s spacing (sleep 0.3)
+    return note(strudelNotes)
+      .s('fm')
+      .fmi(fmi)
+      .fmh(2)
+      .fmdecay(0.06 + hard * 0.12)
+      .attack(0.003)
+      .decay(0.4 + vel * 0.3)
+      .sustain(0.05)
+      .release(1.2)
+      .gain(vol * 0.95)
+      .pan(sine.range(0.35, 0.65).slow(numNotes))
+      .room(0.6)
+      .roomlp(3000)
+      .slow(numNotes * 0.3 / (60 / 120));
+  },
 
-      const noteTime = time + i * 0.3;
+  onEvent(type, msg, data) {
+    // Oracle has no special event handling (original Sonic Pi has none)
+    return null;
+  },
+};
 
-      // Create a per-note voice for individual panning
-      const voice = this._makeVoice(hard, vel, pan);
-      this._activeVoices.push(voice);
-
-      // Schedule note
-      Tone.Transport.scheduleOnce((t) => {
-        voice.synth.triggerAttackRelease(note, '4n', t, amp);
-      }, noteTime);
-
-      // Schedule cleanup after the note fully decays
-      Tone.Transport.scheduleOnce(() => {
-        const idx = this._activeVoices.indexOf(voice);
-        if (idx !== -1) this._activeVoices.splice(idx, 1);
-        try { voice.synth.dispose(); } catch (_) {}
-        try { voice.panner.dispose(); } catch (_) {}
-      }, noteTime + 3);
-    });
-  }
-}
-
-audioEngine.registerTrack('oracle', OracleTrack);
+audioEngine.registerTrack('oracle', oracleTrack);

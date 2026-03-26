@@ -1,27 +1,45 @@
 # Writing Tracks
 
-Tracks are JavaScript files in `frontend/tracks/` that use Tone.js to generate audio in the browser. Each track is a class that receives market data and produces music.
+Tracks are JavaScript files in `frontend/tracks/` that use Strudel (`@strudel/web`) to generate audio in the browser. Each track is an object that receives market data and returns a Strudel pattern.
 
 ## Track Interface
 
 ```javascript
-class MyTrack {
-  constructor(destination)  // Create synths, loops, connect to Tone.js destination
-  start()                   // Start loops (engine ensures Transport is running)
-  stop()                    // Stop and dispose all synths/loops
-  update(data)              // Called every 3s with market data object
-  onEvent(type, msg)        // Handle one-shot events (spike, price_move, resolved)
-}
+const myTrack = {
+  name: 'my_track',
+  label: 'My Track',
+  category: 'music',    // 'music' (continuous) or 'alert' (reactive)
 
-// Register with the audio engine
-audioEngine.registerTrack('my_track', MyTrack);
+  init() {
+    // Reset any persistent state (chord index, counters, etc.)
+  },
+
+  pattern(data) {
+    // Called every 3s with market data. Return a Strudel Pattern or null (silence).
+    // Build layers and stack() them.
+    const layers = [];
+    layers.push(note('c3 e3 g3').s('sine').gain(0.2));
+    layers.push(s('bd_fat').struct('t ~ t ~'));
+    return stack(...layers).cpm(80 / 4);  // set BPM
+  },
+
+  onEvent(type, msg, data) {
+    // Handle one-shot events. Return a Pattern to layer on top, or null.
+    if (type === 'spike') return s('drum_cymbal_soft').gain(0.1).room(0.6);
+    return null;
+  },
+};
+
+audioEngine.registerTrack('my_track', myTrack);
 ```
 
-**Audio isolation:** The `destination` passed to the constructor is a per-track gain node, not the master output directly. When the user switches tracks, the engine disconnects this node to instantly silence all lingering audio (delay tails, orphaned sample players, etc.). Tracks should connect all audio chains to `destination` — never directly to `Tone.Destination`.
+**Key principle: patterns are regenerated, not mutated.** The `pattern(data)` function is called fresh every 3 seconds with new data. It produces a new Pattern object each time. There is no persistent synth state or parameter ramping — the 3-second interval is slow enough that stepped changes sound fine.
+
+**Persistent state** across ticks (e.g., chord index, phrase counter) lives as closure variables or properties on the track object.
 
 ## Data Received
 
-The `update(data)` method receives:
+The `pattern(data)` method receives:
 ```javascript
 {
   heat: 0.0-1.0,        // Composite market activity (sensitivity-adjusted)
@@ -35,202 +53,126 @@ The `update(data)` method receives:
 }
 ```
 
-Activity metrics (heat, velocity, trade_rate, spread) are **pre-adjusted by the user's sensitivity setting** — tracks don't need to handle sensitivity themselves.
+Activity metrics are **pre-adjusted by the user's sensitivity setting**.
 
 ## Events
 
-The `onEvent(type, msg)` method handles one-shot events:
+The `onEvent(type, msg, data)` method handles one-shot events:
 - `type === 'spike'` — Heat delta exceeded threshold
 - `type === 'price_move'` — `msg.direction` is `1` (up) or `-1` (down)
 - `type === 'resolved'` — `msg.result` is `1` (Yes won) or `-1` (No won)
 
+Return a Strudel Pattern to layer on top of the current pattern, or `null` for no response.
+
 ## Track Metadata
 
-Add metadata as comments or in the export for the track selector UI:
+Add metadata as comments at the top of the file for the server to parse:
 ```javascript
 // category: 'music', label: 'My Track Name'
 ```
-Category is `"music"` (continuous generative) or `"alert"` (reactive). The server reads these from the file to populate the track selector.
 
 ## Music Utilities
 
-`audio-engine.js` provides helpers:
-- `getScaleNotes(root, scaleType, count, octaves)` — Get scale notes (e.g., `getScaleNotes('C4', 'major', 8, 2)`)
-- `midiToNote(midi)` / `noteToMidi(note)` — Convert between MIDI numbers and note names (supports sharps and flats: `C#4`, `Bb3`, `Eb4`)
-- `midiToHz(midi)` — Convert MIDI note to Hz. **Use this for all filter cutoff values** — Sonic Pi uses MIDI note numbers for cutoff, not Hz (e.g., `cutoff: 70` → `midiToHz(70)` ≈ 370 Hz)
+`audio-engine.js` provides helpers (independent of Strudel):
+- `getScaleNotes(root, scaleType, count, octaves)` — Get scale notes
+- `midiToNote(midi)` / `noteToMidi(note)` — Convert between MIDI numbers and note names (`C#4`, `Bb3`)
+- `midiToHz(midi)` — Convert MIDI note to Hz. **Use this for all filter cutoff values** — Sonic Pi originals use MIDI note numbers for cutoff
+- `noteToStrudel(noteName)` — Convert standard notation to Strudel format (`C#4` → `cs4`, `Bb3` → `bb3`)
 - `SCALES` — `{major, minor, major_pentatonic, minor_pentatonic, major7, minor7, m7minus5}` interval arrays
 
 ## Sample Bank
 
-206 CC0-licensed OGG samples from Freesound (same set bundled with Sonic Pi) are in `frontend/samples/`. Use the `sampleBank` API to load and play them:
+206 CC0-licensed OGG samples from Freesound (same set bundled with Sonic Pi) are in `frontend/samples/`. They're registered with Strudel during `initStrudel()` — the server sends the full sample name list in the WebSocket `status` message.
 
+Use samples in patterns directly by name:
 ```javascript
-// In constructor: preload samples you need
-const samples = ['bd_fat', 'sn_dub', 'drum_cymbal_closed', 'vinyl_hiss'];
-sampleBank.preload(samples).then(() => { this.samplesReady = true; });
-
-// Load a buffer for use with Tone.Player
-const buf = await sampleBank.load('bd_fat');
-const player = new Tone.Player(buf).connect(destination);
-player.playbackRate = 0.85;  // Sonic Pi rate: parameter
-player.start(time);
-
-// Or get a pre-wired player
-const player = await sampleBank.getPlayer('bd_fat', destination);
+s('bd_fat').speed(0.85).lpf(midiToHz(70)).gain(0.3)
+s('sn_dub').speed(0.9).end(0.3).gain(0.15).room(0.5)
+s('drum_cymbal_closed').speed(1.5).end(0.05).hpf(midiToHz(110))
 ```
 
-Sample names match Sonic Pi exactly (without the colon prefix): `bd_fat`, `sn_dub`, `drum_cymbal_closed`, `drum_cowbell`, `drum_cymbal_soft`, `vinyl_hiss`, etc.
+## Sonic Pi → Strudel Synth Mapping
 
-## Sonic Pi → Tone.js Synth Mapping
+The original tracks were authored in Sonic Pi (`sonic_pi/*.rb`). Here's how each Sonic Pi synth maps to Strudel:
 
-| Sonic Pi synth | Tone.js equivalent | Notes |
+| Sonic Pi synth | Strudel equivalent | Notes |
 | --- | --- | --- |
-| `:piano` | `Tone.FMSynth` (harmonicity: 2–3) | `hard` → modulationIndex, `vel` → envelope decay |
-| `:pluck` | `Tone.PluckSynth` | `coeff` 0.1–0.2 → `resonance` 0.88–0.95 (see gotcha below) |
-| `:tb303` | `Tone.MonoSynth` (sawtooth) | Match filter envelope and Q/resonance |
-| `:hollow` | Triangle `PolySynth` + pink noise layer | Triangle alone is too clean; add bandpass-filtered pink noise that swells with each note for the breathy, resonant character (see pattern below) |
-| `:dark_ambience` | `Tone.Synth` (fatsawtooth, spread: 20) | Detuned saw pair + heavy LPF + reverb |
-| `:sine` | `Tone.Synth` (sine) | Direct equivalent |
-| samples (`:bd_fat` etc.) | `Tone.Player` via `sampleBank` | See "Sample Playback" section for full parameter mapping |
+| `:piano` | `s('fm')` with low `fmi`, fast `fmdecay` | `hard` → fmi (0.5-1.5), `vel` → decay length. `fmdecay` creates the hammer-strike brightness |
+| `:pluck` | `s('triangle')` with short decay + `room` | Approximation of Karplus-Strong. No direct equivalent in superdough |
+| `:tb303` | `s('sawtooth')` with `lpf`/`lpq` | Resonant acid bass. Use `lpq` for resonance |
+| `:hollow` | `s('triangle')` with `lpf` + high `room` | Breathy band-filtered noise character. Triangle + heavy reverb approximates it |
+| `:dark_ambience` | `s('sawtooth')` with heavy `lpf` + `room` | Detuned saw pad |
+| `:sine` | `s('sine')` | Direct equivalent |
+| samples | `s('sample_name')` | Direct: `s('bd_fat')`, `s('sn_dub')`, etc. |
 
-## Critical: Sample Playback Parameters
+## Sonic Pi → Strudel Parameter Mapping
 
-Sonic Pi samples have parameters that **must** be ported to Tone.js or drums will sound terrible. The three most important are `finish` (truncation), `cutoff` (filtering), and `pan` (stereo position).
-
-### `finish:` — Sample truncation
-
-Sonic Pi's `finish:` parameter plays only a fraction of the sample (0.0–1.0). **This is essential for tight percussion.** Without it, a snare plays its full waveform (~1s) instead of a crisp 0.25s hit.
-
-```javascript
-// Sonic Pi: sample :sn_dub, finish: 0.25
-// Tone.js: schedule a stop at finish fraction of sample duration
-const buf = await sampleBank.load('sn_dub');
-const p = new Tone.Player(buf);
-p.start(time);
-const finishDur = (buf.duration / p.playbackRate) * 0.25;
-Tone.Transport.scheduleOnce(() => { p.stop(); }, time + finishDur);
-```
-
-Typical `finish` values from the Sonic Pi tracks:
-| Sample | finish | Effect |
+| Sonic Pi | Strudel | Notes |
 | --- | --- | --- |
-| `sn_dub` (snare) | 0.15–0.30 | Tight dub snare hit |
-| `drum_cowbell` (rim) | 0.03–0.04 | Tiny percussive tick |
-| `drum_cymbal_closed` (hat) | 0.04–0.05 | Crisp hi-hat tick |
+| `amp:` | `.gain(value)` | Direct mapping |
+| `rate:` | `.speed(value)` | Sample playback rate |
+| `finish:` | `.end(value)` | Fraction of sample to play (0-1) |
+| `cutoff:` (MIDI) | `.lpf(midiToHz(value))` | Always convert with `midiToHz()` |
+| `pan:` (-1 to 1) | `.pan(value)` | Strudel: 0=left, 0.5=center, 1=right |
+| `attack:`, `release:` | `.attack(s)`, `.release(s)` | Direct mapping |
+| `with_fx :reverb, room:` | `.room(amount)`, `.rsize(size)` | `room` = wet mix, `rsize` = decay time |
+| `with_fx :echo, phase:, decay:` | `.delay(wet)`, `.delaytime(s)`, `.delayfeedback(fb)` | |
+| `with_fx :lpf, cutoff:` | `.lpf(midiToHz(cutoff))` | |
+| `with_fx :hpf, cutoff:` | `.hpf(midiToHz(cutoff))` | |
+| `res:` (tb303) | `.lpq(value)` | Filter Q/resonance |
 
-### `cutoff:` — Sample filtering
-
-Sonic Pi's `cutoff:` applies a lowpass filter to the sample (MIDI note number, not Hz). Create dedicated `Tone.Filter` nodes and route samples through them.
-
-```javascript
-// Sonic Pi: sample :bd_fat, cutoff: 70
-// Tone.js: route through a pre-built LPF
-this.kickFilter = new Tone.Filter({
-  frequency: midiToHz(70), type: 'lowpass'
-}).connect(destination);
-// Then connect sample player → kickFilter instead of → destination
-```
-
-Typical kick `cutoff` values: 70 (main), 60 (ghost), 55 (sub ghost). Lower = darker, tighter.
-
-### `pan:` — Stereo position
-
-Use `Tone.Panner` for per-hit stereo placement. Important for hats, rim, and pad notes.
-
-```javascript
-const panner = new Tone.Panner(rrand(-0.3, 0.3)).connect(destination);
-gain.connect(panner);
-```
-
-### Standard `_playSample` helper
-
-Both mezzanine and just_vibes use a consistent `_playSample(name, time, opts)` helper that handles all these parameters. When writing new tracks, copy this pattern:
-
-```javascript
-_playSample(name, time, opts = {}) {
-  // opts: { amp, playbackRate, finish, pan, destination }
-  sampleBank.load(name).then((buf) => {
-    const p = new Tone.Player(buf);
-    if (opts.playbackRate) p.playbackRate = opts.playbackRate;
-
-    const dest = opts.destination || this.dest;
-    let tail = dest;
-    let panner = null;
-    if (opts.pan !== undefined) {
-      panner = new Tone.Panner(opts.pan).connect(tail);
-      tail = panner;
-    }
-    const gain = new Tone.Gain(opts.amp || 1).connect(tail);
-    p.connect(gain);
-
-    p.start(time);
-
-    // Truncate at finish point
-    if (opts.finish !== undefined) {
-      const finishDur = (buf.duration / (opts.playbackRate || 1)) * opts.finish;
-      Tone.Transport.scheduleOnce(() => { try { p.stop(); } catch(e) {} }, time + finishDur);
-    }
-
-    // Auto-dispose
-    const dur = opts.finish
-      ? (buf.duration / (opts.playbackRate || 1)) * opts.finish
-      : buf.duration / (opts.playbackRate || 1);
-    setTimeout(() => {
-      try { p.dispose(); gain.dispose(); if (panner) panner.dispose(); } catch(e) {}
-    }, (dur + 1.5) * 1000);
-  });
-}
-```
-
-## `:hollow` Synth Pattern
-
-Sonic Pi's `:hollow` is a band-pass filtered noise synth with resonance — not a simple oscillator. Approximate it by layering a triangle `PolySynth` with a pink noise source filtered through a bandpass that swells with each note:
-
-```javascript
-// In constructor:
-this.padSynth = new Tone.PolySynth(Tone.Synth, {
-  oscillator: { type: 'triangle' },
-  envelope: { attack: 2.5, decay: 1, sustain: 0.5, release: 5 },
-}).connect(this.padFilter);
-this.padNoiseFilter = new Tone.Filter({ frequency: midiToHz(58), type: 'bandpass', Q: 2 }).connect(this.padReverb);
-this.padNoiseGain = new Tone.Gain(0).connect(this.padNoiseFilter);
-this.padNoise = new Tone.Noise('pink').connect(this.padNoiseGain);
-
-// In start(): this.padNoise.start();
-
-// When playing a pad note, swell the noise layer:
-this.padNoiseGain.gain.setValueAtTime(0, time);
-this.padNoiseGain.gain.linearRampToValueAtTime(amp * 0.12, time + 2);
-this.padNoiseGain.gain.linearRampToValueAtTime(0, time + 5);
-```
-
-## `:pluck` Resonance Gotcha
-
-Sonic Pi's `:pluck` `coeff` parameter (0–1) controls the lowpass filter coefficient in the Karplus-Strong feedback loop. Lower values = more high-frequency damping per cycle = darker but still ringing tone. Tone.js `PluckSynth.resonance` (0–1) controls sustain length — higher = longer ring.
-
-**The mapping is not linear or inverse.** Sonic Pi `coeff: 0.1–0.2` produces a moderately damped but clearly audible pluck. Map this to `resonance: 0.88–0.95` in Tone.js. Setting `resonance: 0.1–0.2` (as a naive direct mapping would) kills the note almost instantly.
-
-## Tone.js Patterns
+## Strudel Pattern Basics
 
 Common patterns used in existing tracks:
-- **Loops:** `new Tone.Loop(callback, interval)` — equivalent to Sonic Pi's `live_loop`
-- **Synths:** `Tone.FMSynth` (piano), `Tone.MonoSynth` (tb303-style), `Tone.PluckSynth`, `Tone.Player` (samples)
-- **Effects:** `Tone.Reverb`, `Tone.FeedbackDelay`, `Tone.Filter`
-- **Parameter updates:** Use `.rampTo()` for smooth transitions, direct `.set()` for instant changes
-- **One-shots:** `synth.triggerAttackRelease(note, duration, time, velocity)`
-- **Filter cutoffs:** Always use `midiToHz()` when porting from Sonic Pi cutoff values
+
+```javascript
+// Notes: play a sequence
+note('c3 e3 g3').s('sine').gain(0.2)
+
+// Samples: trigger by name
+s('bd_fat').speed(0.85).lpf(midiToHz(70))
+
+// Stack layers (play simultaneously)
+stack(bassLayer, drumLayer, padLayer)
+
+// Rhythmic structures (boolean patterns)
+s('bd_fat').struct('t ~ t ~')      // beats 1 and 3
+s('sn_dub').struct('~ t ~ ~')      // beat 2
+
+// Speed up patterns
+s('drum_cowbell').struct('~ ~ ~ t ~ ~ t ~').fast(4)  // 16th notes
+
+// Slow down patterns
+s('vinyl_hiss').slow(2)  // every 2 cycles (8 beats)
+
+// Probabilistic triggering
+s('drum_cymbal_closed').degradeBy(0.6)  // 40% chance of playing
+
+// Random values per event
+s('drum_cymbal_closed').speed(rand.range(1.2, 1.8)).gain(rand.range(0.02, 0.06))
+
+// Rests in sequences
+note('c3 ~ e3 ~ g3').s('sine')  // ~ = rest
+
+// Set BPM: cycles per minute = BPM / beats_per_cycle
+stack(...layers).cpm(80 / 4)  // 80 BPM, 4 beats per cycle
+
+// Panning with LFO
+.pan(sine.range(0.3, 0.7).slow(4))
+```
 
 ## Existing Tracks
 
 ### oracle.js
-Piano alert track. Single `Tone.Loop` (3s interval). FMSynth voices with per-note panning play ascending/descending motifs (2–6 notes) on price movement > 0.1. C major when bullish, A minor when bearish. `hard` and `vel` parameters drive FM modulation depth and envelope. Volume scales with activity (velocity + trade_rate).
+Piano alert track. Returns pattern only when `|price_delta| > 0.1`, otherwise `null` (silence). FM synth voices play ascending/descending motifs (2-6 notes from scale). C major when bullish, A minor when bearish. Volume very low (matching Sonic Pi `set_volume! 0.3`). From `sonic_pi/oracle.rb`.
 
 ### mezzanine.js
-Massive Attack/Teardrop-inspired ambient dub, 80 BPM. Am → Am → F → G progression. 12+ concurrent loops: sub bass (sine), bass (MonoSynth/tb303), arp (PluckSynth with octave shifts), kick + kick ghost (bd_fat samples), snare (sn_dub), hi-hat (drum_cymbal_closed through HPF), rim (drum_cowbell), vinyl dust (vinyl_hiss), pad/dub wash (triangle + reverb), deep echo (fatsawtooth + delay), price drift (PluckSynth through reverb→echo→LPF), ambient drone. Heat inversely drives pad density. Price drives all filter cutoffs via `midiToHz()`. Events trigger FMSynth piano arpeggios and cymbal crashes.
+Massive Attack/Teardrop-inspired ambient dub, 80 BPM. Am → Am → F → G progression (8-bar cycle). Layers: sub bass (sine), bass (sawtooth/tb303 phrases), arp (triangle with octave shifts), kick + ghost patterns (bd_fat), snare (sn_dub), hi-hat (probabilistic), rim (16-step cowbell pattern), vinyl dust, pad/dub wash (triangle + reverb), deep echo (sawtooth + delay), price drift (triangle through reverb→delay), ambient drone. Events trigger FM piano arpeggios and cymbal crashes. From `sonic_pi/mezzanine.rb`.
 
 ### just_vibes.js
-Lo-fi hip hop, 75 BPM. Key: F major / D minor. Chord clock syncs all harmonic loops via `chordIdx`. Same sample-based drum palette as mezzanine. Bullish: Fmaj7→Em7→Dm7→Cmaj7. Bearish: Dm7→Bbmaj7→Gm7→Am7. Pad uses self-scheduling for random 6-8 beat intervals. Deep echo uses fatsawtooth through delay→LPF at random 10-14 beat intervals.
+Lo-fi hip hop, 75 BPM. Bullish: Fmaj7→Em7→Dm7→Cmaj7. Bearish: Dm7→Bbmaj7→Gm7→Am7. Same sample-based drum palette as mezzanine. Price drift uses FM piano. Deep echo at random 10-14 beat intervals. From `sonic_pi/just_vibes.rb`.
 
-## Legacy Sonic Pi Tracks
+## Legacy References
 
-The original `.rb` tracks remain in `sonic_pi/` for reference and local Sonic Pi development. They are not deployed to the web server. See `sonic_pi/oracle.rb`, `sonic_pi/mezzanine.rb`, `sonic_pi/just_vibes.rb`.
+- **Sonic Pi originals:** `sonic_pi/*.rb` — The source of truth for musical content. All Strudel tracks are ported from these, using the mastered amp values (with `~nf` normalization factors applied).
+- **Archived Tone.js versions:** `frontend/tracks/_tone_*.js` — Previous Tone.js implementations, kept for reference. Underscore prefix means the server skips them.

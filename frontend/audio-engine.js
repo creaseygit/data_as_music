@@ -1,139 +1,137 @@
-// ── Audio Engine ──────────────────────────────────────────
-// Manages Tone.js lifecycle, track loading, and market data routing.
+// ── Audio Engine (Strudel) ────────────────────────────────
+// Manages Strudel lifecycle, track loading, and market data routing.
+// Strudel globals (note, s, stack, samples, etc.) are available
+// after initStrudel() is called.
 
 const audioEngine = (() => {
   let initialized = false;
-  let currentTrack = null;
-  let currentTrackGain = null;
-  let masterGain = null;
+  let currentTrackDef = null;
+  let currentTrackName = null;
+  let currentPattern = null;
+  let masterVolume = 0.7;
+  let latestData = {};
+  let sampleNames = [];  // populated from server status message
 
   // Track registry — populated by track files calling audioEngine.registerTrack()
   const trackRegistry = {};
 
   async function init() {
     if (initialized) return;
-    await Tone.start();
-    masterGain = new Tone.Gain(0.7).toDestination();
+    // Build sample map from server-provided sample names
+    const sampleMap = {};
+    for (const name of sampleNames) {
+      sampleMap[name] = [name + '.ogg'];
+    }
+    await initStrudel({
+      prebake: () => samples(sampleMap, '/static/samples/'),
+    });
     initialized = true;
-    console.log('[Audio] Tone.js initialized');
-  }
-
-  // Tear down the current track and its isolation gain node.
-  // Disconnecting the gain node instantly silences any lingering audio
-  // (orphaned sample players, delay tails, etc.) without needing to
-  // track every dynamically-created node inside the track.
-  function _teardownTrack() {
-    if (currentTrack) {
-      currentTrack.stop();
-      currentTrack = null;
-    }
-    if (currentTrackGain) {
-      currentTrackGain.disconnect();
-      currentTrackGain.dispose();
-      currentTrackGain = null;
-    }
-    Tone.Transport.stop();
-    Tone.Transport.cancel();
+    console.log('[Audio] Strudel initialized');
   }
 
   async function selectTrack(name) {
     if (!initialized) await init();
 
-    _teardownTrack();
+    // Stop current pattern
+    _stop();
 
-    const TrackClass = trackRegistry[name];
-    if (!TrackClass) {
+    const trackDef = trackRegistry[name];
+    if (!trackDef) {
       console.warn('[Audio] Unknown track:', name);
       return;
     }
 
-    // Per-track gain node isolates this track's audio from masterGain.
-    currentTrackGain = new Tone.Gain(1).connect(masterGain);
-    currentTrack = new TrackClass(currentTrackGain);
-    currentTrack.start();
-    // Ensure Transport is running (some tracks forget to start it)
-    if (Tone.Transport.state !== 'started') {
-      Tone.Transport.start();
+    currentTrackDef = trackDef;
+    currentTrackName = name;
+
+    // Reset track state if it has an init method
+    if (trackDef.init) {
+      trackDef.init();
     }
+
+    // Generate and play the initial pattern
+    _regenerate();
+
     console.log('[Audio] Track started:', name);
   }
 
+  function _stop() {
+    try { hush(); } catch (e) {}
+    currentPattern = null;
+  }
+
+  function _regenerate() {
+    if (!currentTrackDef) return;
+
+    try {
+      const pat = currentTrackDef.pattern(latestData);
+      if (pat) {
+        currentPattern = pat.gain(masterVolume);
+        currentPattern.play();
+      }
+    } catch (e) {
+      console.warn('[Audio] Pattern generation error:', e);
+    }
+  }
+
   function stop() {
-    _teardownTrack();
+    _stop();
+    currentTrackDef = null;
+    currentTrackName = null;
   }
 
   function setVolume(v) {
-    if (masterGain) {
-      masterGain.gain.rampTo(v, 0.1);
+    masterVolume = v;
+    // Regenerate pattern with new volume
+    if (currentTrackDef) {
+      _stop();
+      _regenerate();
     }
   }
 
   function onMarketData(data) {
-    if (currentTrack && currentTrack.update) {
-      currentTrack.update(data);
+    latestData = { ...latestData, ...data };
+    if (currentTrackDef) {
+      _stop();
+      _regenerate();
     }
   }
 
   function handleEvent(msg) {
-    if (currentTrack && currentTrack.onEvent) {
-      currentTrack.onEvent(msg.event, msg);
+    if (currentTrackDef && currentTrackDef.onEvent) {
+      const eventPat = currentTrackDef.onEvent(msg.event, msg, latestData);
+      if (eventPat) {
+        // Layer the event pattern on top of the current pattern
+        _stop();
+        try {
+          const combined = currentTrackDef.pattern(latestData);
+          if (combined) {
+            currentPattern = stack(combined, eventPat).gain(masterVolume);
+            currentPattern.play();
+          }
+        } catch (e) {
+          console.warn('[Audio] Event pattern error:', e);
+        }
+      }
     }
   }
 
-  function registerTrack(name, TrackClass) {
-    trackRegistry[name] = TrackClass;
+  function registerTrack(name, trackDef) {
+    trackRegistry[name] = trackDef;
   }
 
-  return { init, selectTrack, stop, setVolume, onMarketData, handleEvent, registerTrack };
-})();
-
-// ── Sample bank ─────────────────────────────────────────────
-// Loads OGG samples on demand from /static/samples/.
-// Usage:  const player = await sampleBank.getPlayer('bd_fat', destination);
-//         player.start(time);
-
-const sampleBank = (() => {
-  const buffers = {};   // name → Tone.ToneAudioBuffer
-  const loading = {};   // name → Promise
-
-  function url(name) {
-    return `/static/samples/${name}.ogg`;
+  function setSampleNames(names) {
+    sampleNames = names;
   }
 
-  /** Load a sample buffer (cached). Returns a Promise<Tone.ToneAudioBuffer>. */
-  function load(name) {
-    if (buffers[name]) return Promise.resolve(buffers[name]);
-    if (loading[name]) return loading[name];
-    loading[name] = new Promise((resolve, reject) => {
-      const buf = new Tone.ToneAudioBuffer(url(name), () => {
-        buffers[name] = buf;
-        delete loading[name];
-        resolve(buf);
-      }, (err) => {
-        delete loading[name];
-        console.warn(`[SampleBank] Failed to load ${name}:`, err);
-        reject(err);
-      });
-    });
-    return loading[name];
-  }
-
-  /** Get a Tone.Player wired to destination, ready to .start(time). */
-  async function getPlayer(name, destination) {
-    const buf = await load(name);
-    const player = new Tone.Player(buf).connect(destination);
-    return player;
-  }
-
-  /** Preload a list of sample names. Returns Promise that resolves when all are loaded. */
-  function preload(names) {
-    return Promise.all(names.map(n => load(n)));
-  }
-
-  return { load, getPlayer, preload, url };
+  return {
+    init, selectTrack, stop, setVolume, onMarketData,
+    handleEvent, registerTrack, setSampleNames,
+  };
 })();
 
 // ── Music theory utilities ──────────────────────────────────
+// These are pure functions, no audio engine dependency.
 
 const SCALES = {
   major: [0, 2, 4, 5, 7, 9, 11],
@@ -162,7 +160,7 @@ function noteToMidi(note) {
   return (names[key] ?? 0) + (parseInt(match[2]) + 1) * 12;
 }
 
-/** Convert MIDI note number to Hz. Sonic Pi uses MIDI values for filter cutoffs. */
+/** Convert MIDI note number to Hz. */
 function midiToHz(midi) {
   return 440 * Math.pow(2, (midi - 69) / 12);
 }
@@ -178,4 +176,13 @@ function getScaleNotes(rootNote, scaleType, count, octaves) {
     }
   }
   return notes.slice(0, count);
+}
+
+/** Convert note name to Strudel-compatible lowercase format.
+ *  C#4 -> cs4, Bb3 -> bb3, A3 -> a3, G#4 -> gs4
+ *  Strudel uses: lowercase, 's' for sharp, 'b' for flat (same as input).
+ *  Only '#' needs replacing with 's'. Flats ('b') stay as-is in Strudel.
+ */
+function noteToStrudel(noteName) {
+  return noteName.toLowerCase().replace('#', 's');
 }

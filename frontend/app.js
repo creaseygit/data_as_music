@@ -215,6 +215,10 @@ function updateAudioUI() {
 }
 
 function onWsStatus(data) {
+  // Pass sample names to audio engine for Strudel sample map
+  if (data.samples && data.samples.length > 0) {
+    audioEngine.setSampleNames(data.samples);
+  }
   // Populate track selector
   const sel = document.getElementById('track-select');
   if (sel.options.length === 0 && data.tracks) {

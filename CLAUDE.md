@@ -2,10 +2,10 @@
 
 ## What This Is
 
-A multi-user web app that turns Polymarket prediction market activity into generative music via **Tone.js** (browser-based audio). Python scores markets by real-time heat, normalizes data to 0–1 ranges, applies a per-client **sensitivity curve**, and pushes adjusted values to each connected browser via WebSocket. Each track (`.js` file in `frontend/tracks/`) is a self-contained Tone.js musical interpretation of the data.
+A multi-user web app that turns Polymarket prediction market activity into generative music via **Strudel** (browser-based audio, TidalCycles-inspired live coding patterns). Python scores markets by real-time heat, normalizes data to 0–1 ranges, applies a per-client **sensitivity curve**, and pushes adjusted values to each connected browser via WebSocket. Each track (`.js` file in `frontend/tracks/`) is a self-contained Strudel pattern that receives market data and generates music.
 
-**Repo:** Private (GitHub)
-**License:** Not open source (Tone.js dependency is MIT)
+**Repo:** GitHub (public)
+**License:** AGPL-3.0 (matching Strudel dependency)
 
 ## How to Run
 
@@ -26,7 +26,7 @@ python server.py
 ```
 CloudFlare → Nginx → Python aiohttp (data only) ←→ Polymarket APIs
                           ↓ WebSocket (per client)
-                     Browser (Tone.js audio)
+                     Browser (Strudel audio)
 ```
 
 ### Data Flow
@@ -36,8 +36,8 @@ CloudFlare → Nginx → Python aiohttp (data only) ←→ Polymarket APIs
 3. `polymarket/scorer.py` — `MarketScorer` computes heat score (0-1) from price velocity, trade rate, volume, spread
 4. `mixer/mixer.py` — `AutonomousDJ` manages market list, live finance auto-rotation. Events dispatched via async callback (no OSC)
 5. `server.py` `broadcast_loop` — Per-client: normalizes raw data to 0–1, applies sensitivity power curve (`4^(1-2s)`), detects events, pushes JSON via WebSocket every 3s
-6. `frontend/audio-engine.js` — Tone.js bridge: init, track lifecycle, data→synth routing
-7. Track `.js` files — Self-contained Tone.js tracks that receive data via `update(data)` method
+6. `frontend/audio-engine.js` — Strudel bridge: init, track lifecycle, data→pattern routing
+7. Track `.js` files — Self-contained Strudel tracks that return patterns from `pattern(data)` method
 
 ## Key Files
 
@@ -50,12 +50,12 @@ CloudFlare → Nginx → Python aiohttp (data only) ←→ Polymarket APIs
 | `polymarket/websocket.py` | CLOB WebSocket feed. First message is a list (book snapshot), not a dict                                             |
 | `polymarket/scorer.py`    | Heat scoring: `price_velocity * 0.35 + trade_rate * 0.40 + volume * 0.15 + spread * 0.10`                           |
 | `mixer/mixer.py`          | `AutonomousDJ` — market selection via `pin_market()`, `_primary_asset()`, live finance auto-rotation                 |
-| `frontend/index.html`     | Main page HTML, loads Tone.js from CDN                                                                                |
+| `frontend/index.html`     | Main page HTML, loads Strudel from CDN                                                                                |
 | `frontend/app.js`         | UI logic: browse tabs, market picker, sliders, now-playing display                                                    |
 | `frontend/ws-client.js`   | WebSocket client with auto-reconnect                                                                                  |
-| `frontend/audio-engine.js`| Tone.js init, track registry with per-track gain isolation, data→synth bridge, sample bank, music theory utilities    |
+| `frontend/audio-engine.js`| Strudel init, track registry, pattern lifecycle, data→pattern bridge, music theory utilities                           |
 | `frontend/tracks/*.js`    | Track files: `oracle.js` (alert piano), `mezzanine.js` (ambient dub), `just_vibes.js` (lo-fi hip hop)               |
-| `frontend/samples/*.ogg`  | 206 OGG samples (CC0, from Freesound via Sonic Pi). Loaded on demand by `sampleBank` in audio-engine.js              |
+| `frontend/samples/*.ogg`  | 206 OGG samples (CC0, from Freesound via Sonic Pi). Registered as Strudel sample bank                                |
 | `deploy/`                 | Nginx config, systemd service, EC2 setup script                                                                       |
 
 ## Tech Stack
@@ -63,7 +63,7 @@ CloudFlare → Nginx → Python aiohttp (data only) ←→ Polymarket APIs
 - Python 3.12, asyncio, aiohttp (web server + WebSocket)
 - websockets (Polymarket CLOB feed)
 - requests (Gamma REST API)
-- Tone.js (browser audio synthesis — MIT license)
+- Strudel (browser audio synthesis — AGPL-3.0, TidalCycles-inspired patterns)
 - AWS Lightsail (us-east-1, $5/mo 1GB plan) + Nginx + CloudFlare
 
 ## Detailed Documentation Index
@@ -73,7 +73,7 @@ For deeper context, read the relevant doc below. **Only load what you need for t
 | Doc | Contents | Read when... |
 | --- | -------- | ------------ |
 | [`docs/data-interface.md`](docs/data-interface.md) | Data values pushed to clients (heat, price, velocity, etc.), event triggers, system state, tone hysteresis, outcome selection | Working on data pipeline, scorer, mixer, or understanding what data tracks receive |
-| [`docs/writing-tracks.md`](docs/writing-tracks.md) | How to write Tone.js tracks (interface, data mapping), existing track descriptions (oracle, mezzanine, just_vibes) | Writing, editing, or reviewing browser tracks |
+| [`docs/writing-tracks.md`](docs/writing-tracks.md) | How to write Strudel tracks (pattern interface, data mapping, synth mapping from Sonic Pi), existing track descriptions | Writing, editing, or reviewing browser tracks |
 | [`docs/live-finance.md`](docs/live-finance.md) | Rolling BTC/ETH market patterns (5m/15m/hourly), slug generation, auto-rotation logic | Working on live finance rotation, crypto browse tab, or slug matching |
 | [`docs/web-ui-and-api.md`](docs/web-ui-and-api.md) | UI sections, WebSocket protocol, API endpoints, background loops, deployment | Modifying the web UI, WebSocket protocol, API endpoints, or deployment config |
 | [`docs/gotchas.md`](docs/gotchas.md) | Known issues: Polymarket API, browse/config, legacy code | Hit a weird bug, need to understand non-obvious constraints |
