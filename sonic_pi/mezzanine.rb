@@ -50,7 +50,7 @@ live_loop :sub_bass do
   use_synth :sine
   amp_val = 0.16 + (h * 0.1)
   with_fx :lpf, cutoff: 55 do
-    play r, amp: amp_val, attack: 0.2, sustain: 3, release: 0.8
+    play r, amp: amp_val * 0.23, attack: 0.2, sustain: 3, release: 0.8  # ~nf
   end
   sleep 4
 end
@@ -75,7 +75,7 @@ live_loop :bass_line do
   with_fx :lpf, cutoff: cut do
     steps.each do |n, dur|
       if n != :r
-        play n, amp: amp_val * rrand(0.8, 1.0), release: [dur * 0.7, 0.35].min,
+        play n, amp: amp_val * rrand(0.8, 1.0) * 0.6, release: [dur * 0.7, 0.35].min,  # ~nf
           cutoff: cut, res: 0.2, wave: 0
       end
       sleep dur
@@ -93,7 +93,7 @@ live_loop :teardrop_arp do
     with_fx :lpf, cutoff: 75 + (pr * 15) do
       sleep 0.5
       ns.each do |n|
-        play n, amp: amp_val * rrand(0.7, 1.0), release: 1.5, coeff: 0.15
+        play n, amp: amp_val * rrand(0.7, 1.0) * 1.86, release: 1.5, coeff: 0.15  # ~nf
         sleep 0.5
       end
       sleep 0.5
@@ -105,10 +105,10 @@ live_loop :kick do
   h = get(:heat)
   tr = get(:trade_rate)
   amp_val = 0.2 + (h * 0.15)
-  sample :bd_fat, amp: amp_val, cutoff: 70, rate: 0.85
+  sample :bd_fat, amp: amp_val * 1.6, cutoff: 70, rate: 0.85  # ~nf
   if tr > 0.4
     sleep 0.75
-    sample :bd_fat, amp: amp_val * 0.4, cutoff: 60, rate: 0.8
+    sample :bd_fat, amp: amp_val * 0.4 * 1.6, cutoff: 60, rate: 0.8  # ~nf
     sleep 1.25
   else
     sleep 2
@@ -120,7 +120,7 @@ live_loop :kick_ghost do
   h = get(:heat)
   pat = (ring 0, 0, 1, 0, 0, 1, 0, 0)
   if tr > 0.3 && pat.tick == 1
-    sample :bd_fat, amp: 0.06 + (h * 0.05), cutoff: 55, rate: 0.75
+    sample :bd_fat, amp: (0.06 + (h * 0.05)) * 1.6, cutoff: 55, rate: 0.75  # ~nf
   end
   sleep 0.5
 end
@@ -130,12 +130,12 @@ live_loop :snare_dub do
   h = get(:heat)
   tr = get(:trade_rate)
   with_fx :reverb, room: 0.8, damp: 0.6, mix: 0.5 do
-    sample :sn_dub, amp: 0.08 + (h * 0.07), rate: 0.9, finish: 0.3
+    sample :sn_dub, amp: (0.08 + (h * 0.07)) * 0.78, rate: 0.9, finish: 0.3  # ~nf
   end
   if tr > 0.5 && rand < 0.4
     sleep 1.5
     with_fx :reverb, room: 0.9, damp: 0.5, mix: 0.6 do
-      sample :sn_dub, amp: 0.05, rate: 1.0, finish: 0.2
+      sample :sn_dub, amp: 0.05 * 0.78, rate: 1.0, finish: 0.2  # ~nf
     end
     sleep 0.5
   else
@@ -149,7 +149,7 @@ live_loop :rim do
   if tr > 0.25
     pat = (ring 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0)
     if pat.tick == 1
-      sample :drum_cowbell, amp: 0.03 + (h * 0.03), rate: 2.5,
+      sample :drum_cowbell, amp: (0.03 + (h * 0.03)) * 0.52, rate: 2.5,  # ~nf
         finish: 0.04, pan: rrand(-0.2, 0.2)
     end
   end
@@ -161,7 +161,7 @@ live_loop :hat_ghost do
   prob = 0.1 + tr * 0.35
   if rand < prob
     with_fx :hpf, cutoff: 110 do
-      sample :drum_cymbal_closed, amp: rrand(0.02, 0.06),
+      sample :drum_cymbal_closed, amp: rrand(0.02, 0.06) * 2.48,  # ~nf
         rate: rrand(1.2, 1.8), finish: 0.05, pan: rrand(-0.4, 0.4)
     end
   end
@@ -170,7 +170,7 @@ live_loop :hat_ghost do
 end
 
 live_loop :vinyl_dust do
-  sample :vinyl_hiss, amp: 0.04, rate: 0.8, finish: 0.4
+  sample :vinyl_hiss, amp: 0.04 * 5.0, rate: 0.8, finish: 0.4  # ~nf
   sleep 8
 end
 
@@ -183,7 +183,7 @@ live_loop :dub_wash do
   amp_val = [0.05 - (h * 0.025), 0.015].max
   with_fx :reverb, room: 0.95, damp: 0.7, mix: 0.75 do
     with_fx :lpf, cutoff: 55 + (pr * 20) do
-      play ch.choose, amp: amp_val, attack: 3, release: 5, pan: rrand(-0.3, 0.3)
+      play ch.choose, amp: amp_val * 2.66, attack: 3, release: 5, pan: rrand(-0.3, 0.3)  # ~nf
     end
   end
   sleep [6, 8].choose
@@ -197,7 +197,7 @@ live_loop :deep_echo do
     use_synth :dark_ambience
     with_fx :echo, phase: 0.75, decay: 6, mix: 0.6 do
       with_fx :lpf, cutoff: 70 do
-        play ns.choose, amp: 0.03 + (v * 0.03), attack: 1, release: 3
+        play ns.choose, amp: (0.03 + (v * 0.03)) * 5.0, attack: 1, release: 3  # ~nf
       end
     end
   end
@@ -223,7 +223,7 @@ live_loop :price_drift do
         with_fx :lpf, cutoff: 85 do
           ns.each do |n|
             v = vol * rrand(0.6, 1.0)
-            play n, amp: v, release: 3, coeff: 0.2
+            play n, amp: v * 1.86, release: 3, coeff: 0.2  # ~nf
             sleep [0.5, 0.75, 1.0].choose
           end
         end
@@ -250,7 +250,7 @@ live_loop :event_move do
           ns.each_with_index do |n, i|
             frac = i.to_f / [ns.length - 1, 1].max
             amp_env = vol * (0.5 + frac * 0.3) * rrand(0.7, 1.0)
-            play n, amp: amp_env, hard: 0.15, vel: 0.3 + rrand(0.0, 0.15),
+            play n, amp: amp_env * 0.97, hard: 0.15, vel: 0.3 + rrand(0.0, 0.15),  # ~nf
               pan: (frac - 0.5) * 0.3
             sleep [0.4, 0.5, 0.6].choose
           end
@@ -269,10 +269,10 @@ live_loop :event_spike_fx do
     use_synth :hollow
     with_fx :reverb, room: 0.95, damp: 0.3, mix: 0.8 do
       with_fx :echo, phase: 1.0, decay: 8, mix: 0.5 do
-        play ch, amp: 0.1, attack: 0.5, release: 4
+        play ch, amp: 0.1 * 2.66, attack: 0.5, release: 4  # ~nf
       end
     end
-    sample :drum_cymbal_soft, amp: 0.08, rate: 0.5
+    sample :drum_cymbal_soft, amp: 0.08 * 1.88, rate: 0.5  # ~nf
   end
   sleep 0.5
 end
@@ -291,7 +291,7 @@ live_loop :resolved do
       with_fx :echo, phase: 0.5, decay: 6, mix: 0.4 do
         ns.each_with_index do |n, i|
           frac = i.to_f / [ns.length - 1, 1].max
-          play n, amp: 0.1 * (0.5 + frac * 0.5),
+          play n, amp: 0.1 * (0.5 + frac * 0.5) * 0.97,  # ~nf
             hard: 0.15 + (frac * 0.15), vel: 0.35, pan: (frac - 0.5) * 0.3
           sleep 0.5
         end
@@ -306,7 +306,7 @@ live_loop :ambient_drone do
     use_synth :dark_ambience
     with_fx :reverb, room: 0.95, mix: 0.85 do
       with_fx :lpf, cutoff: 60 do
-        play [:a2, :e3, :a3].choose, amp: 0.08, attack: 4, release: 8
+        play [:a2, :e3, :a3].choose, amp: 0.08 * 5.0, attack: 4, release: 8  # ~nf
       end
     end
   end

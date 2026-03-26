@@ -175,7 +175,7 @@ set :ambient_mode, 0
    - Any mapping logic (heat → volume, price → pitch, trade_rate → rhythm density, etc.)
    - Any genre, any structure
 
-4. **Keep amp values conservative** — use `set_volume! 0.7` for master headroom, keep individual amps under 0.5
+4. **Treat amp as relative volume** — the mastering pipeline normalizes all instruments to equal loudness, so `amp: 0.3` on any synth/sample produces the same perceived volume. Use `set_volume! 0.7` for master headroom, keep individual amps under 0.5. After writing a track, run `python -m mastering --all` to apply normalization factors.
 
 5. **Keep the file concise** — under ~14KB raw. `run_file` strips comments automatically, but stay within budget
 
@@ -184,6 +184,14 @@ set :ambient_mode, 0
 7. **Use correct chord names** — `:major7`, `:minor7`, `:maj9`, `:m9`, `:dom7` (NOT `:major9`, `:minor9`, `:M9`)
 
 See `midnight_ticker.rb` for the full data interface, `oracle.rb` for a minimal price-only approach.
+
+### Instrument Loudness Normalization
+
+The mastering pipeline (`python -m mastering --all`) ensures all synths and samples produce equal perceived loudness at the same `amp:` value. It multiplies each `amp:` expression by a per-instrument factor (e.g., `amp: 0.18 * 0.85  # ~nf`). Lines marked `# ~nf` have been normalized.
+
+**When writing tracks:** Set amp values based on the mix role you want — louder for leads/kicks, quieter for textures/ambience. Don't worry about intrinsic instrument loudness differences; the mastering pipeline handles that.
+
+**After writing/modifying tracks:** Run `python -m mastering --all` to apply normalization. Use `--revert` to undo.
 
 ## Background Loops
 

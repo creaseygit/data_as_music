@@ -35,7 +35,7 @@ live_loop :price_watch do
       notes.each_with_index do |n, i|
         frac = i.to_f / [notes.length - 1, 1].max
         amp_env = delta > 0 ? vol * (0.7 + frac * 0.3) : vol * (1.0 - frac * 0.3)
-        synth :piano, note: n, amp: amp_env, hard: hard,
+        synth :piano, note: n, amp: amp_env * 0.97, hard: hard,  # ~nf
           vel: 0.5 + (mag * 2), pan: (frac - 0.5) * 0.3
         sleep 0.3
       end
@@ -61,7 +61,7 @@ live_loop :price_event do
       notes.each_with_index do |n, i|
         frac = i.to_f / (notes.length - 1)
         amp_env = pm == 1 ? 0.16 * (0.6 + frac * 0.4) : 0.16 * (1.0 - frac * 0.3)
-        synth :piano, note: n, amp: amp_env,
+        synth :piano, note: n, amp: amp_env * 0.97,  # ~nf
           hard: 0.4, vel: 0.6, pan: (frac - 0.5) * 0.4
         sleep 0.3
       end
@@ -79,7 +79,7 @@ live_loop :resolved do
       with_fx :reverb, room: 0.9, damp: 0.3 do
         notes.each_with_index do |n, i|
           frac = i.to_f / (notes.length - 1)
-          synth :piano, note: n, amp: 0.18 * (0.5 + frac * 0.5),
+          synth :piano, note: n, amp: 0.18 * (0.5 + frac * 0.5) * 0.97,  # ~nf
             hard: 0.3 + (frac * 0.3), vel: 0.5 + (frac * 0.3),
             pan: (frac - 0.5) * 0.4
           sleep 0.3
@@ -90,7 +90,7 @@ live_loop :resolved do
       with_fx :reverb, room: 0.9, damp: 0.6 do
         notes.each_with_index do |n, i|
           frac = i.to_f / (notes.length - 1)
-          synth :piano, note: n, amp: 0.15 * (1.0 - frac * 0.3),
+          synth :piano, note: n, amp: 0.15 * (1.0 - frac * 0.3) * 0.97,  # ~nf
             hard: 0.4 - (frac * 0.1), vel: 0.6 - (frac * 0.2),
             pan: (0.5 - frac) * 0.4
           sleep 0.3
