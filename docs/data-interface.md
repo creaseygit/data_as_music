@@ -29,6 +29,8 @@ Events are **suppressed for one push cycle** when the market rotates (e.g., a li
 | `:market_resolved` | 0, 1, -1 | Market resolved (1=Yes won, -1=No won) |
 | `:ambient_mode`    | 0 or 1   | No active markets — ambient fallback   |
 
+When the currently-playing market resolves: live finance markets auto-rotate to the next window; non-live markets stop audio playback entirely (prevents stale music from playing after the market has ended).
+
 ## Tone Hysteresis
 
 Tone uses hysteresis to prevent major/minor flickering when price hovers near 0.50:

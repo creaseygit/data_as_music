@@ -23,6 +23,7 @@ class AutonomousDJ:
         self.current_asset  = None
         self.all_markets = []
         self.pinned_slug = None
+        self.on_market_ended = None   # async callback when non-live market resolves
 
     # ── Public control ────────────────────────────────────
 
@@ -251,3 +252,5 @@ class AutonomousDJ:
             # If it was a live finance market, schedule immediate rotation
             if was_live:
                 asyncio.ensure_future(self._rotate_live_market())
+            elif self.on_market_ended:
+                asyncio.ensure_future(self.on_market_ended())

@@ -1761,12 +1761,28 @@ log('Track Sandbox ready. Pick a track and click Start.');
 
 # ── App setup ─────────────────────────────────────────────
 
+async def _on_market_ended():
+    """Stop audio when a non-live-finance market resolves."""
+    print("[SERVER] Market ended (resolved) — stopping audio", flush=True)
+    if state.sonic and state.audio_running:
+        await state.sonic.stop_code()
+        state.audio_running = False
+        state.current_track = None
+        # Cancel data push loops — no market to push
+        for t in [state._push_task, state._price_task]:
+            if t:
+                t.cancel()
+        state._push_task = None
+        state._price_task = None
+
+
 async def on_startup(app):
     """Start Polymarket feed and DJ on server boot."""
     import polymarket.gamma as gamma_module
 
     state.osc = OSCBridge(state.scorer)
     state.dj = AutonomousDJ(state.scorer, None, state.osc, gamma_module)
+    state.dj.on_market_ended = _on_market_ended
     state.feed = PolymarketFeed(state.scorer, on_resolution=state.dj.on_market_resolved)
     state.dj.feed = state.feed
 
