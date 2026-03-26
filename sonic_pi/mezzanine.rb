@@ -279,18 +279,19 @@ live_loop :event_move do
   sleep 0.5
 end
 
+spike_cooldown = 15
+spike_last_at = Time.now - spike_cooldown
+
 live_loop :event_spike_fx do
   if get(:event_spike) == 1
     set :event_spike, 0
-    t = get(:tone)
-    ch = t == 1 ? chord(:a3, :minor7) : [:a3, :c4, :gs4, :e4]
-    use_synth :hollow
-    with_fx :reverb, room: 0.95, damp: 0.3, mix: 0.8 do
-      with_fx :echo, phase: 1.0, decay: 8, mix: 0.5 do
-        play ch, amp: 0.1 * 2.66, attack: 0.5, release: 4  # ~nf
+    now = Time.now
+    if now - spike_last_at >= spike_cooldown
+      spike_last_at = now
+      with_fx :reverb, room: 0.8, damp: 0.4, mix: 0.6 do
+        sample :drum_cymbal_soft, amp: 0.08 * 1.88, rate: 0.5  # ~nf
       end
     end
-    sample :drum_cymbal_soft, amp: 0.08 * 1.88, rate: 0.5  # ~nf
   end
   sleep 0.5
 end
