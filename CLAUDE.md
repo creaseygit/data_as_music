@@ -198,6 +198,13 @@ set :ambient_mode, 0
 
 7. **Use correct chord names** — `:major7`, `:minor7`, `:maj9`, `:m9`, `:dom7` (NOT `:major9`, `:minor9`, `:M9`)
 
+8. **Declare metadata** at the top of the `.rb` file before the `set` defaults:
+   ```ruby
+   # @category music
+   # @label My Track Name
+   ```
+   Category is `"music"` (continuous generative music) or `"alert"` (reactive event sounds). Defaults to `"music"` if omitted. Label defaults to the filename in title case
+
 See `midnight_ticker.rb` for the full data interface, `oracle.rb` for a minimal price-only approach. Use the **Track Sandbox** (`/sandbox`) to test tracks with manual slider control.
 
 ### Instrument Loudness Normalization

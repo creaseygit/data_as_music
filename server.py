@@ -63,12 +63,31 @@ class AppState:
         # Sandbox mode — manual data control, no market data push
         self.sandbox_mode = False
 
+    @staticmethod
+    def _parse_track_meta(filepath):
+        """Parse @category and @label from comment lines at the top of an .rb file."""
+        meta = {"category": "music", "label": None}
+        with open(filepath, "r", encoding="utf-8") as f:
+            for line in f:
+                if not line.startswith("#"):
+                    break
+                if m := re.match(r"#\s*@category\s+(\S+)", line):
+                    meta["category"] = m.group(1)
+                elif m := re.match(r"#\s*@label\s+(.+)", line):
+                    meta["label"] = m.group(1).strip()
+        return meta
+
     def _find_tracks(self):
-        """Find all .rb track files."""
+        """Find all .rb track files with metadata."""
         tracks = {}
         for f in sorted(glob.glob("sonic_pi/*.rb")):
             p = Path(f)
-            tracks[p.stem] = str(p)
+            meta = self._parse_track_meta(str(p))
+            tracks[p.stem] = {
+                "path": str(p),
+                "category": meta["category"],
+                "label": meta["label"] or p.stem.replace("_", " ").title(),
+            }
         return tracks
 
     def status(self):
@@ -117,7 +136,10 @@ class AppState:
             "audio_running": self.audio_running,
             "feed_running": self.feed_running,
             "current_track": self.current_track,
-            "tracks": list(self.tracks.keys()),
+            "tracks": [
+                {"name": name, "label": info["label"], "category": info["category"]}
+                for name, info in self.tracks.items()
+            ],
             "pinned": self.dj.pinned_slug if self.dj else None,
             "current_market": market_info,
             "event_rate": self._get_event_rate(),
@@ -303,7 +325,7 @@ async def handle_start_audio(request):
             state.dj.osc = state.osc
 
         # Load track
-        track_path = state.tracks[track_name]
+        track_path = state.tracks[track_name]["path"]
         await state.sonic.run_file(track_path)
         state.current_track = track_name
         state.audio_running = True
@@ -405,7 +427,7 @@ async def handle_change_track(request):
     if state.sonic and state.audio_running:
         await state.sonic.stop_code()
         await asyncio.sleep(1)
-        await state.sonic.run_file(state.tracks[track_name])
+        await state.sonic.run_file(state.tracks[track_name]["path"])
         state.current_track = track_name
         await asyncio.sleep(2)
         # Re-apply master volume after track load
@@ -655,7 +677,7 @@ async def handle_track_analyze(request):
     if not track_name or track_name not in state.tracks:
         return web.json_response({"error": "Unknown track", "available": list(state.tracks.keys())}, status=400)
 
-    loops = analyze_track(state.tracks[track_name])
+    loops = analyze_track(state.tracks[track_name]["path"])
     return web.json_response({"ok": True, "track": track_name, "loops": loops})
 
 
@@ -691,7 +713,7 @@ async def handle_sandbox_start(request):
         state._price_task = None
 
         # Load track
-        track_path = state.tracks[track_name]
+        track_path = state.tracks[track_name]["path"]
         await state.sonic.run_file(track_path)
         state.current_track = track_name
         state.audio_running = True
@@ -1180,7 +1202,20 @@ function updateUI(s) {
 
   const sel = document.getElementById('track-select');
   if (sel.options.length === 0 && s.tracks) {
-    s.tracks.forEach(t => sel.add(new Option(t, t)));
+    const groups = {};
+    s.tracks.forEach(t => {
+      const cat = t.category || 'music';
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(t);
+    });
+    const order = [['music', 'Music'], ['alert', 'Alerts']];
+    order.forEach(([key, label]) => {
+      if (!groups[key]) return;
+      const og = document.createElement('optgroup');
+      og.label = label;
+      groups[key].forEach(t => og.add(new Option(t.label, t.name)));
+      sel.add(og);
+    });
   }
   if (s.current_track && sel.value !== s.current_track) {
     sel.value = s.current_track;
@@ -1469,7 +1504,20 @@ async function loadTracks() {
   const sel = document.getElementById('track-select');
   if (r.tracks) {
     sel.innerHTML = '';
-    r.tracks.forEach(t => sel.add(new Option(t, t)));
+    const groups = {};
+    r.tracks.forEach(t => {
+      const cat = t.category || 'music';
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(t);
+    });
+    const order = [['music', 'Music'], ['alert', 'Alerts']];
+    order.forEach(([key, label]) => {
+      if (!groups[key]) return;
+      const og = document.createElement('optgroup');
+      og.label = label;
+      groups[key].forEach(t => og.add(new Option(t.label, t.name)));
+      sel.add(og);
+    });
   }
 }
 

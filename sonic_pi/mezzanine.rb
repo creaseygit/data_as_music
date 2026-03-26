@@ -1,3 +1,6 @@
+# @category music
+# @label Mezzanine
+
 set :heat, 0.3
 set :price, 0.5
 set :velocity, 0.1
