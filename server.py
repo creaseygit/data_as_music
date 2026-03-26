@@ -13,6 +13,7 @@ Controls:
 """
 import asyncio
 import json
+import re
 import sys
 import time
 import glob
@@ -47,6 +48,8 @@ class AppState:
         self.current_track = None
         self.tracks = self._find_tracks()
 
+        self.master_volume = 0.7
+
         # Background tasks
         self._feed_task = None
         self._dj_task = None
@@ -57,6 +60,9 @@ class AppState:
         self._prev_heat = 0.0
         self._prev_price = 0.5
         self._current_tone = 1
+
+        # Sandbox mode — manual data control, no market data push
+        self.sandbox_mode = False
 
     def _find_tracks(self):
         """Find all .rb track files."""
@@ -270,6 +276,8 @@ async def handle_status(request):
 
 async def handle_start_audio(request):
     """Boot Sonic Pi and load a track."""
+    if state.sandbox_mode:
+        return web.json_response({"error": "Sandbox mode active. Stop sandbox first."}, status=400)
     if state.audio_running:
         return web.json_response({"error": "Audio already running"}, status=400)
 
@@ -299,6 +307,9 @@ async def handle_start_audio(request):
         state.current_track = track_name
         state.audio_running = True
         await asyncio.sleep(2)
+
+        # Apply current master volume (track's set_volume! may differ)
+        await state.sonic.run_code(f"set_volume! {state.master_volume:.2f}")
 
         # Start background loops
         state._push_task = asyncio.create_task(param_push_loop())
@@ -364,6 +375,7 @@ async def handle_stop_audio(request):
         state.sonic = None
 
     state.audio_running = False
+    state.sandbox_mode = False
     state.current_track = None
     return web.json_response({"ok": True})
 
@@ -382,6 +394,8 @@ async def handle_change_track(request):
         await state.sonic.run_file(state.tracks[track_name])
         state.current_track = track_name
         await asyncio.sleep(2)
+        # Re-apply master volume after track load
+        await state.sonic.run_code(f"set_volume! {state.master_volume:.2f}")
         return web.json_response({"ok": True, "track": track_name})
     else:
         return web.json_response({"error": "Audio not running"}, status=400)
@@ -512,6 +526,18 @@ async def handle_kill_all(request):
     return web.json_response({"ok": True, "message": msg})
 
 
+async def handle_volume(request):
+    """Set master volume in Sonic Pi."""
+    data = await request.json()
+    vol = data.get("volume", 0.7)
+    vol = max(0.0, min(1.0, float(vol)))
+    state.master_volume = vol
+    if state.sonic and state.audio_running:
+        await state.sonic.run_code(f"set_volume! {vol:.2f}")
+        return web.json_response({"ok": True, "volume": vol})
+    return web.json_response({"error": "Audio not running"}, status=400)
+
+
 async def handle_browse(request):
     """Browse markets by category."""
     import polymarket.gamma as gamma_module
@@ -556,6 +582,173 @@ async def handle_categories(request):
     return web.json_response({"categories": BROWSE_CATEGORIES})
 
 
+# ── Track analyzer ───────────────────────────────────────
+
+_DATA_PARAMS = {"heat", "price", "velocity", "trade_rate", "spread", "tone",
+                "event_spike", "event_price_move", "market_resolved", "ambient_mode"}
+
+def analyze_track(track_path: str) -> list[dict]:
+    """Parse a .rb track file and extract live_loop names + which get() params each reads."""
+    with open(track_path, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+
+    # Ruby keywords that open a block closed by `end`
+    _BLOCK_OPENERS = re.compile(
+        r'\b(do|if|unless|while|until|for|begin|case|def|define|class|module)\b'
+    )
+
+    loops = []
+    current_loop = None
+    depth = 0
+
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith('#'):
+            continue
+
+        # Detect live_loop :name [, opts] do
+        m = re.match(r'live_loop\s+:(\w+).*\bdo\b', stripped)
+        if m:
+            current_loop = {"name": m.group(1), "params": set()}
+            depth = 1
+            continue
+
+        if current_loop:
+            # Count block openers (do, if, def, etc.) — each needs a matching end
+            # Inline if/unless (e.g. `x if cond`) don't open blocks — skip those
+            # by only counting if the keyword is at statement start or after a newline
+            openers = len(_BLOCK_OPENERS.findall(stripped))
+            # Subtract inline conditionals: `expr if cond` where if is not at start
+            if re.search(r'\S+\s+if\s+', stripped):
+                openers = max(0, openers - stripped.count(' if '))
+            if re.search(r'\S+\s+unless\s+', stripped):
+                openers = max(0, openers - stripped.count(' unless '))
+
+            closers = len(re.findall(r'\bend\b', stripped))
+            depth += openers - closers
+
+            if depth <= 0:
+                loops.append({
+                    "name": current_loop["name"],
+                    "params": sorted(current_loop["params"]),
+                    "connected": len(current_loop["params"]) > 0,
+                })
+                current_loop = None
+                continue
+
+            # Find get(:param) or get :param
+            for gm in re.finditer(r'get\s*[\(:][:]*(\w+)', stripped):
+                param = gm.group(1)
+                if param in _DATA_PARAMS:
+                    current_loop["params"].add(param)
+
+    return loops
+
+
+async def handle_track_analyze(request):
+    """Return live_loop → parameter mappings for a track."""
+    track_name = request.query.get("track")
+    if not track_name or track_name not in state.tracks:
+        return web.json_response({"error": "Unknown track", "available": list(state.tracks.keys())}, status=400)
+
+    loops = analyze_track(state.tracks[track_name])
+    return web.json_response({"ok": True, "track": track_name, "loops": loops})
+
+
+# ── Sandbox API handlers ─────────────────────────────────
+
+async def handle_sandbox_start(request):
+    """Boot Sonic Pi and load a track in sandbox mode (no market data push)."""
+    if state.audio_running and not state.sandbox_mode:
+        return web.json_response({"error": "Audio already running in live mode. Stop it first."}, status=400)
+
+    data = await request.json() if request.content_length else {}
+    track_name = data.get("track", "midnight_ticker")
+
+    if track_name not in state.tracks:
+        return web.json_response({"error": f"Unknown track: {track_name}",
+                                  "available": list(state.tracks.keys())}, status=400)
+
+    try:
+        if not state.sonic:
+            state.sonic = SonicPiHeadless()
+            await state.sonic.boot(timeout=30)
+
+        # Stop any existing code
+        if state.audio_running:
+            await state.sonic.stop_code()
+            await asyncio.sleep(0.5)
+
+        # Cancel any data push loops (sandbox = manual control only)
+        for t in [state._push_task, state._price_task]:
+            if t:
+                t.cancel()
+        state._push_task = None
+        state._price_task = None
+
+        # Load track
+        track_path = state.tracks[track_name]
+        await state.sonic.run_file(track_path)
+        state.current_track = track_name
+        state.audio_running = True
+        state.sandbox_mode = True
+
+        return web.json_response({"ok": True, "track": track_name})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def handle_sandbox_stop(request):
+    """Stop sandbox mode audio."""
+    if not state.sandbox_mode:
+        return web.json_response({"error": "Not in sandbox mode"}, status=400)
+
+    if state.sonic:
+        await state.sonic.stop_code()
+        await state.sonic.shutdown()
+        state.sonic = None
+
+    state.audio_running = False
+    state.sandbox_mode = False
+    state.current_track = None
+    return web.json_response({"ok": True})
+
+
+async def handle_sandbox_push(request):
+    """Push manual data values to Sonic Pi (sandbox mode)."""
+    if not state.sonic or not state.audio_running:
+        return web.json_response({"error": "Audio not running"}, status=400)
+
+    data = await request.json()
+    code = ""
+    for key in ["heat", "price", "velocity", "trade_rate", "spread"]:
+        if key in data:
+            val = max(0.0, min(1.0, float(data[key])))
+            code += f"set :{key}, {val:.4f}\n"
+    for key in ["tone", "event_spike", "ambient_mode"]:
+        if key in data:
+            val = int(data[key])
+            code += f"set :{key}, {val}\n"
+    if "event_price_move" in data:
+        val = int(data["event_price_move"])
+        code += f"set :event_price_move, {val}\n"
+    if "market_resolved" in data:
+        val = int(data["market_resolved"])
+        code += f"set :market_resolved, {val}\n"
+
+    if code:
+        try:
+            await state.sonic.run_code(code)
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    return web.json_response({"ok": True})
+
+
+async def handle_sandbox_page(request):
+    return web.Response(text=SANDBOX_PAGE, content_type="text/html")
+
+
 async def handle_index(request):
     return web.Response(text=HTML_PAGE, content_type="text/html")
 
@@ -577,6 +770,24 @@ HTML_PAGE = r"""<!DOCTYPE html>
   .panel { background: #12121a; border: 1px solid #222; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
   .panel h2 { color: #00aaff; font-size: 15px; margin-bottom: 12px; }
 
+  .audio-grid {
+    display: grid;
+    grid-template-columns: auto auto 1fr auto auto;
+    gap: 0 16px;
+    align-items: center;
+  }
+  .audio-status { display: flex; align-items: center; gap: 6px; }
+  .audio-controls { display: flex; gap: 6px; }
+  .audio-track { display: flex; flex-direction: column; gap: 4px; justify-self: end; }
+  .audio-track select { min-width: 150px; }
+  .audio-volume { display: flex; flex-direction: column; gap: 4px; }
+  .audio-restart { display: flex; align-items: center; }
+  .audio-test {
+    display: flex; gap: 6px; align-items: center; margin-top: 10px;
+    padding-top: 10px; border-top: 1px solid #1a1a2e;
+  }
+  .audio-test button { font-size: 11px; padding: 5px 10px; }
+
   .row { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
 
   button {
@@ -594,6 +805,29 @@ HTML_PAGE = r"""<!DOCTYPE html>
   select {
     background: #1a1a2e; color: #e0e0e0; border: 1px solid #333;
     padding: 8px 12px; border-radius: 4px; font-family: inherit; font-size: 13px;
+  }
+
+  /* Custom range slider */
+  input[type="range"] {
+    -webkit-appearance: none; appearance: none;
+    background: transparent; cursor: pointer;
+  }
+  input[type="range"]::-webkit-slider-runnable-track {
+    height: 4px; background: #1a1a2e; border: 1px solid #333; border-radius: 2px;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: #00aaff; border: 1px solid #00aaff;
+    margin-top: -6px; box-shadow: 0 0 6px #00aaff44;
+  }
+  input[type="range"]::-moz-range-track {
+    height: 4px; background: #1a1a2e; border: 1px solid #333; border-radius: 2px;
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 12px; height: 12px; border-radius: 50%;
+    background: #00aaff; border: 1px solid #00aaff;
+    box-shadow: 0 0 6px #00aaff44;
   }
 
   .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; }
@@ -643,9 +877,8 @@ HTML_PAGE = r"""<!DOCTYPE html>
   .browse-question { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #ccc; }
   .browse-meta { font-size: 11px; color: #555; margin-top: 2px; }
   .browse-price { color: #00aaff; font-size: 14px; font-weight: bold; min-width: 45px; text-align: right; }
-  .browse-play { padding: 4px 10px; font-size: 11px; }
-  .user-card { cursor: pointer; }
-  .user-card.playing { border-color: #00ff88; background: #081a0e; }
+  .browse-card { cursor: pointer; }
+  .browse-card.playing { border-color: #00ff88; background: #081a0e; }
 
   .heat-bar { width: 50px; height: 5px; background: #1a1a2e; border-radius: 3px; overflow: hidden; display: inline-block; vertical-align: middle; }
   .heat-fill { height: 100%; border-radius: 3px; }
@@ -679,26 +912,43 @@ HTML_PAGE = r"""<!DOCTYPE html>
 </head>
 <body>
 <div class="container">
-  <h1>THE POLYMARKET BAR</h1>
+  <div style="display:flex; align-items:center; gap:16px;">
+    <h1>THE POLYMARKET BAR</h1>
+    <a href="/sandbox" style="color:#ff9900; text-decoration:none; font-size:12px; border:1px solid #ff990044; padding:4px 10px; border-radius:4px;">Track Sandbox</a>
+  </div>
   <div class="subtitle">One market. One mood. Real-time.</div>
 
   <!-- Audio Engine -->
   <div class="panel">
     <h2>Audio</h2>
-    <div class="row">
-      <span class="dot" id="audio-dot"></span>
-      <span id="audio-label">Stopped</span>
-      <select id="track-select"></select>
-      <button onclick="startAudio()">Start</button>
-      <button class="danger" onclick="stopAudio()">Stop</button>
-      <button onclick="changeTrack()">Switch Track</button>
-      <button class="danger" onclick="killAll()" style="margin-left:auto;">Kill All</button>
+    <div class="audio-grid">
+      <div class="audio-status">
+        <span class="dot" id="audio-dot"></span>
+        <span id="audio-label">Stopped</span>
+      </div>
+      <div class="audio-controls">
+        <button onclick="startAudio()">Start</button>
+        <button class="danger" onclick="stopAudio()">Stop</button>
+      </div>
+      <div class="audio-track">
+        <label style="color:#555; font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Track</label>
+        <select id="track-select" onchange="onTrackChange()"></select>
+      </div>
+      <div class="audio-volume">
+        <label style="color:#555; font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Volume</label>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <input type="range" id="volume-slider" min="0" max="100" value="70" style="width:100px;" oninput="onVolumeChange(this.value)">
+          <span id="volume-label" style="color:#00aaff; font-size:12px; min-width:30px;">70%</span>
+        </div>
+      </div>
+      <div class="audio-restart">
+        <button class="danger" onclick="restartAudio()" style="font-size:11px; padding:6px 10px; white-space:nowrap;">Restart</button>
+      </div>
     </div>
-    <div class="row" id="test-row" style="display:none;">
-      <span style="color:#555;">Test:</span>
+    <div id="test-row" class="audio-test" style="display:none;">
       <button onclick="testSound('beep')">Beep</button>
       <button onclick="testSound('kick')">Kick</button>
-      <button onclick="testSound('all_layers')">All Layers On</button>
+      <button onclick="testSound('all_layers')">All Layers</button>
     </div>
   </div>
 
@@ -728,24 +978,16 @@ HTML_PAGE = r"""<!DOCTYPE html>
     </div>
   </div>
 
-  <!-- Markets -->
+  <!-- Data Source -->
   <div class="panel">
-    <h2>Markets</h2>
+    <h2>Data Source</h2>
     <div class="url-row">
       <input type="text" id="url-input" placeholder="Paste Polymarket URL to play..." onkeydown="if(event.key==='Enter')playUrl()">
       <button onclick="playUrl()">Play URL</button>
     </div>
     <div class="url-status" id="url-status"></div>
 
-    <div id="user-markets-section" style="display:none;">
-      <div class="row" style="margin-bottom:6px;">
-        <span style="color:#666; font-size:12px;">Your Markets</span>
-        <button style="margin-left:auto; padding:3px 8px; font-size:11px; border-color:#444; color:#666;" onclick="clearUserMarkets()">Clear</button>
-      </div>
-      <div id="user-markets"></div>
-    </div>
-
-    <div style="margin-top:14px;">
+    <div style="margin-top:6px;">
       <div id="browse-tabs" class="browse-tabs"></div>
       <div id="browse-results" style="margin-top:8px;"></div>
     </div>
@@ -756,7 +998,6 @@ HTML_PAGE = r"""<!DOCTYPE html>
 
 <script>
 let lastStatus = null;
-let userMarkets = [];
 let browseCache = {};
 let activeTab = null;
 
@@ -784,8 +1025,11 @@ async function stopAudio() {
   const r = await api('/api/stop', 'POST');
   r.ok ? log('Audio stopped') : log('ERR: ' + r.error);
 }
-async function changeTrack() {
+async function onTrackChange() {
+  if (!lastStatus || !lastStatus.audio_running) return;
   const track = document.getElementById('track-select').value;
+  if (track === lastStatus.current_track) return;
+  log('Switching to: ' + track);
   const r = await api('/api/track', 'POST', {track});
   r.ok ? log('Track: ' + r.track) : log('ERR: ' + r.error);
 }
@@ -794,9 +1038,21 @@ async function testSound(type) {
   const r = await api('/api/test-sound', 'POST', {type});
   r.ok ? log('Test sound: ' + type) : log('ERR: ' + r.error);
 }
-async function killAll() {
+async function restartAudio() {
+  log('Restarting audio engine...');
   const r = await api('/api/kill-all', 'POST');
-  r.ok ? log(r.message) : log('ERR: ' + r.error);
+  r.ok ? log('Audio restarted. ' + r.message) : log('ERR: ' + r.error);
+}
+
+// ── Volume ──
+let volumeTimer = null;
+function onVolumeChange(rawVal) {
+  const pct = parseInt(rawVal);
+  document.getElementById('volume-label').textContent = pct + '%';
+  if (volumeTimer) clearTimeout(volumeTimer);
+  volumeTimer = setTimeout(async () => {
+    await api('/api/volume', 'POST', {volume: pct / 100});
+  }, 200);
 }
 async function setMode(auto) {
   const r = await api('/api/autonomous', 'POST', {enabled: auto});
@@ -816,8 +1072,7 @@ async function playUrl() {
     if (r.ok) {
       status.textContent = '';
       input.value = '';
-      addUserMarket({slug: r.pinned, question: r.question});
-      log('Playing URL: ' + r.question);
+      log('Playing: ' + r.question);
     } else {
       status.textContent = 'Error: ' + r.error;
       status.style.color = '#ff4444';
@@ -828,59 +1083,15 @@ async function playUrl() {
   }
 }
 
-// ── Play from browse or user list ──
-async function playMarket(slug, question, eventSlug) {
-  const r = await api('/api/pin', 'POST', {slug});
-  if (r.ok) {
-    addUserMarket({slug, question, event_slug: eventSlug});
-    log('Playing: ' + (question || slug));
-  } else {
-    log('ERR: ' + r.error);
-  }
-}
-
+// ── Play from browse ──
 async function playBrowseMarket(slug, question, eventSlug) {
   const r = await api('/api/play-url', 'POST', {url: 'https://polymarket.com/event/' + (eventSlug || slug)});
   if (r.ok) {
-    addUserMarket({slug: r.pinned, question: r.question, event_slug: eventSlug});
     log('Playing: ' + r.question);
+    if (activeTab && browseCache[activeTab]) renderBrowse(browseCache[activeTab]);
   } else {
     log('ERR: ' + r.error);
   }
-}
-
-// ── User markets ──
-function addUserMarket(m) {
-  if (!userMarkets.find(u => u.slug === m.slug)) {
-    userMarkets.unshift(m);
-  }
-  renderUserMarkets();
-}
-function clearUserMarkets() {
-  userMarkets = [];
-  renderUserMarkets();
-}
-function renderUserMarkets() {
-  const section = document.getElementById('user-markets-section');
-  const container = document.getElementById('user-markets');
-  if (!userMarkets.length) { section.style.display = 'none'; return; }
-  section.style.display = '';
-  const playing = lastStatus && lastStatus.pinned;
-  container.innerHTML = userMarkets.map(m => {
-    const isPlaying = playing === m.slug;
-    const cls = isPlaying ? 'browse-card user-card playing' : 'browse-card user-card';
-    const slug = (m.slug||'').replace(/'/g, "\\'");
-    const q = (m.question||'').replace(/'/g, "\\'");
-    const es = (m.event_slug||m.slug||'').replace(/'/g, "\\'");
-    const link = es ? 'https://polymarket.com/event/' + es : '';
-    return '<div class="' + cls + '" onclick="playMarket(\'' + slug + '\',\'' + q + '\',\'' + es + '\')">'
-      + '<div class="browse-body">'
-      + '<div class="browse-question">' + (m.question||m.slug).substring(0,70) + '</div>'
-      + '</div>'
-      + (link ? '<a class="market-link" href="' + link + '" target="_blank" rel="noopener" onclick="event.stopPropagation();">View &#x2197;</a>' : '')
-      + (isPlaying ? '<div class="market-play-badge">PLAYING</div>' : '')
-      + '</div>';
-  }).join('');
 }
 
 // ── Browse tabs ──
@@ -930,6 +1141,7 @@ function renderBrowse(markets) {
     el.innerHTML = '<div class="browse-loading">No markets found</div>';
     return;
   }
+  const playing = lastStatus && lastStatus.pinned;
   el.innerHTML = markets.map(m => {
     const slug = (m.slug||'').replace(/'/g, "\\'");
     const q = (m.question||'').replace(/'/g, "\\'");
@@ -937,14 +1149,16 @@ function renderBrowse(markets) {
     const link = es ? 'https://polymarket.com/event/' + es : '';
     const pricePct = m.price !== null ? (m.price * 100).toFixed(0) + '%' : '';
     const vol = m.volume > 0 ? '$' + (m.volume/1000).toFixed(0) + 'k' : '';
-    return '<div class="browse-card">'
+    const isPlaying = playing === m.slug;
+    const cls = isPlaying ? 'browse-card playing' : 'browse-card';
+    return '<div class="' + cls + '" onclick="playBrowseMarket(\'' + slug + '\',\'' + q + '\',\'' + es + '\')">'
       + '<div class="browse-body">'
       + '<div class="browse-question">' + (m.question||'').substring(0,65) + '</div>'
       + '<div class="browse-meta">' + vol + '</div>'
       + '</div>'
       + (pricePct ? '<div class="browse-price">' + pricePct + '</div>' : '')
       + (link ? '<a class="market-link" href="' + link + '" target="_blank" rel="noopener" onclick="event.stopPropagation();">View &#x2197;</a>' : '')
-      + '<button class="browse-play" onclick="event.stopPropagation();playBrowseMarket(\'' + slug + '\',\'' + q + '\',\'' + es + '\')">Play</button>'
+      + (isPlaying ? '<div class="market-play-badge">PLAYING</div>' : '')
       + '</div>';
   }).join('');
 }
@@ -959,6 +1173,9 @@ function updateUI(s) {
   const sel = document.getElementById('track-select');
   if (sel.options.length === 0 && s.tracks) {
     s.tracks.forEach(t => sel.add(new Option(t, t)));
+  }
+  if (s.current_track && sel.value !== s.current_track) {
+    sel.value = s.current_track;
   }
 
   document.getElementById('feed-dot').className = 'dot ' + (s.feed_running ? 'dot-on' : 'dot-off');
@@ -991,7 +1208,8 @@ function updateUI(s) {
     }
   } else { np.style.display = 'none'; }
 
-  renderUserMarkets();
+  // Re-render browse to update playing state
+  if (activeTab && browseCache[activeTab]) renderBrowse(browseCache[activeTab]);
 }
 
 setInterval(async () => {
@@ -1000,6 +1218,475 @@ setInterval(async () => {
 
 initBrowse();
 log('Ready. Start audio, then pick a market to play.');
+</script>
+</body>
+</html>
+"""
+
+
+# ── Sandbox HTML ──────────────────────────────────────────
+
+SANDBOX_PAGE = r"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Track Sandbox — Polymarket Bar</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0a0a0f; color: #e0e0e0; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 14px; }
+  .container { max-width: 1100px; margin: 0 auto; padding: 20px; }
+
+  .header { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
+  h1 { color: #ff9900; font-size: 22px; }
+  .back-link { color: #00aaff; text-decoration: none; font-size: 12px; border: 1px solid #00aaff44; padding: 4px 10px; border-radius: 4px; }
+  .back-link:hover { background: #00aaff22; }
+  .subtitle { color: #666; font-size: 12px; margin-bottom: 20px; }
+
+  .panel { background: #12121a; border: 1px solid #222; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  .panel h2 { color: #00aaff; font-size: 15px; margin-bottom: 12px; }
+  .panel h3 { color: #ff9900; font-size: 13px; margin: 14px 0 8px 0; }
+
+  .row { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+
+  button {
+    background: #1a1a2e; color: #00ff88; border: 1px solid #00ff88;
+    padding: 8px 16px; border-radius: 4px; cursor: pointer;
+    font-family: inherit; font-size: 13px; transition: all 0.15s;
+  }
+  button:hover { background: #00ff88; color: #0a0a0f; }
+  button.danger { border-color: #ff4444; color: #ff4444; }
+  button.danger:hover { background: #ff4444; color: #0a0a0f; }
+  button.active { background: #00ff88; color: #0a0a0f; font-weight: bold; }
+  button.orange { border-color: #ff9900; color: #ff9900; }
+  button.orange:hover { background: #ff9900; color: #0a0a0f; }
+  button.orange.active { background: #ff9900; color: #0a0a0f; font-weight: bold; }
+  button:disabled { opacity: 0.3; cursor: default; }
+  button.sm { padding: 4px 10px; font-size: 11px; }
+
+  select {
+    background: #1a1a2e; color: #e0e0e0; border: 1px solid #333;
+    padding: 8px 12px; border-radius: 4px; font-family: inherit; font-size: 13px;
+  }
+
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+  .dot-on { background: #ff9900; box-shadow: 0 0 8px #ff9900; }
+  .dot-off { background: #333; }
+
+  /* Slider styles */
+  .slider-group { margin-bottom: 12px; }
+  .slider-label { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  .slider-name { color: #888; font-size: 12px; text-transform: uppercase; }
+  .slider-value { color: #ff9900; font-size: 14px; font-weight: bold; min-width: 50px; text-align: right; }
+  input[type="range"] {
+    -webkit-appearance: none; width: 100%; height: 6px; background: #1a1a2e;
+    border-radius: 3px; outline: none; border: 1px solid #333;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 18px; height: 18px; background: #ff9900;
+    border-radius: 50%; cursor: pointer; border: 2px solid #0a0a0f;
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 18px; height: 18px; background: #ff9900;
+    border-radius: 50%; cursor: pointer; border: 2px solid #0a0a0f;
+  }
+
+  .columns { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 800px) { .columns { grid-template-columns: 1fr; } }
+
+  /* Instrument map */
+  .loop-card {
+    background: #0d0d15; border: 1px solid #1a1a2e; border-radius: 6px;
+    padding: 10px 14px; margin-bottom: 6px; transition: all 0.15s;
+  }
+  .loop-card.connected { border-color: #ff990044; }
+  .loop-card.disconnected { border-color: #33333344; opacity: 0.6; }
+  .loop-name { font-size: 14px; font-weight: bold; margin-bottom: 4px; }
+  .loop-name.connected { color: #ff9900; }
+  .loop-name.disconnected { color: #555; }
+  .loop-params { display: flex; flex-wrap: wrap; gap: 4px; }
+  .param-tag {
+    font-size: 10px; padding: 2px 6px; border-radius: 3px;
+    background: #1a1a2e; border: 1px solid #333; color: #888;
+  }
+  .param-tag.active { border-color: #ff9900; color: #ff9900; background: #ff990015; }
+  .no-params { font-size: 11px; color: #444; font-style: italic; }
+
+  /* Toggle buttons for tone/events */
+  .toggle-row { display: flex; gap: 6px; align-items: center; }
+  .toggle-btn {
+    background: #1a1a2e; color: #666; border: 1px solid #333;
+    padding: 5px 12px; border-radius: 4px; cursor: pointer;
+    font-family: inherit; font-size: 12px; transition: all 0.15s;
+  }
+  .toggle-btn:hover { border-color: #ff9900; color: #ccc; }
+  .toggle-btn.active { background: #ff990022; border-color: #ff9900; color: #ff9900; font-weight: bold; }
+
+  /* Preset buttons */
+  .preset-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+  .preset-btn {
+    background: #1a1a2e; color: #00aaff; border: 1px solid #00aaff44;
+    padding: 5px 12px; border-radius: 4px; cursor: pointer;
+    font-family: inherit; font-size: 11px; transition: all 0.15s;
+  }
+  .preset-btn:hover { background: #00aaff22; border-color: #00aaff; }
+
+  #log {
+    background: #08080c; border: 1px solid #1a1a2e; border-radius: 4px;
+    padding: 10px; height: 80px; overflow-y: auto; font-size: 11px; color: #444; margin-top: 10px;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>TRACK SANDBOX</h1>
+    <a class="back-link" href="/">Back to DJ</a>
+  </div>
+  <div class="subtitle">Load a track, move the sliders, hear how data shapes the music. No market connection needed.</div>
+
+  <!-- Audio Engine -->
+  <div class="panel">
+    <h2>Audio</h2>
+    <div class="row">
+      <span class="dot" id="audio-dot"></span>
+      <span id="audio-label">Stopped</span>
+      <select id="track-select"></select>
+      <button class="orange" onclick="sandboxStart()">Start</button>
+      <button class="danger" onclick="sandboxStop()">Stop</button>
+      <button class="orange" onclick="switchTrack()">Switch Track</button>
+      <button class="danger" onclick="killAll()" style="margin-left:auto;">Kill All</button>
+    </div>
+  </div>
+
+  <div class="columns">
+    <!-- Left: Sliders -->
+    <div>
+      <div class="panel">
+        <h2>Data Controls</h2>
+
+        <h3>Presets</h3>
+        <div class="preset-row">
+          <button class="preset-btn" onclick="applyPreset('calm')">Calm</button>
+          <button class="preset-btn" onclick="applyPreset('moderate')">Moderate</button>
+          <button class="preset-btn" onclick="applyPreset('intense')">Intense</button>
+          <button class="preset-btn" onclick="applyPreset('zero')">All Zero</button>
+          <button class="preset-btn" onclick="applyPreset('max')">All Max</button>
+        </div>
+
+        <h3>Continuous (0.0 — 1.0)</h3>
+        <div class="slider-group">
+          <div class="slider-label"><span class="slider-name">Heat</span><span class="slider-value" id="val-heat">0.40</span></div>
+          <input type="range" id="sl-heat" min="0" max="100" value="40" oninput="onSlider('heat',this.value)">
+        </div>
+        <div class="slider-group">
+          <div class="slider-label"><span class="slider-name">Price</span><span class="slider-value" id="val-price">0.50</span></div>
+          <input type="range" id="sl-price" min="0" max="100" value="50" oninput="onSlider('price',this.value)">
+        </div>
+        <div class="slider-group">
+          <div class="slider-label"><span class="slider-name">Velocity</span><span class="slider-value" id="val-velocity">0.20</span></div>
+          <input type="range" id="sl-velocity" min="0" max="100" value="20" oninput="onSlider('velocity',this.value)">
+        </div>
+        <div class="slider-group">
+          <div class="slider-label"><span class="slider-name">Trade Rate</span><span class="slider-value" id="val-trade_rate">0.30</span></div>
+          <input type="range" id="sl-trade_rate" min="0" max="100" value="30" oninput="onSlider('trade_rate',this.value)">
+        </div>
+        <div class="slider-group">
+          <div class="slider-label"><span class="slider-name">Spread</span><span class="slider-value" id="val-spread">0.20</span></div>
+          <input type="range" id="sl-spread" min="0" max="100" value="20" oninput="onSlider('spread',this.value)">
+        </div>
+
+        <h3>Tone</h3>
+        <div class="toggle-row">
+          <button class="toggle-btn active" id="tone-1" onclick="setTone(1)">Major (Bullish)</button>
+          <button class="toggle-btn" id="tone-0" onclick="setTone(0)">Minor (Bearish)</button>
+        </div>
+
+        <h3>Event Triggers (one-shot)</h3>
+        <div class="row">
+          <button class="orange sm" onclick="fireEvent('event_spike')">Heat Spike</button>
+          <button class="sm" onclick="fireEvent('event_price_move', 1)">Price Up</button>
+          <button class="sm" onclick="fireEvent('event_price_move', -1)">Price Down</button>
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <button class="sm" onclick="fireEvent('market_resolved', 1)">Resolved: Yes Won</button>
+          <button class="sm" onclick="fireEvent('market_resolved', -1)">Resolved: No Won</button>
+          <button class="sm" onclick="fireEvent('market_resolved', 0)">Clear Resolved</button>
+        </div>
+
+        <h3>Ambient Mode</h3>
+        <div class="toggle-row">
+          <button class="toggle-btn" id="ambient-0" onclick="setAmbient(0)">Off</button>
+          <button class="toggle-btn" id="ambient-1" onclick="setAmbient(1)">On (no market)</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Instrument Map -->
+    <div>
+      <div class="panel">
+        <h2>Instrument Map</h2>
+        <div id="instrument-map">
+          <div style="color:#444; font-size:12px;">Start a track to see its instruments and data connections.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="log"></div>
+</div>
+
+<script>
+let audioRunning = false;
+let currentTrack = null;
+let pushTimer = null;
+let pendingPush = {};
+let trackLoops = [];
+
+function log(msg) {
+  const el = document.getElementById('log');
+  const t = new Date().toLocaleTimeString();
+  el.innerHTML += '<div>[' + t + '] ' + msg + '</div>';
+  el.scrollTop = el.scrollHeight;
+}
+
+async function api(path, method='GET', body=null) {
+  const opts = { method, headers: {'Content-Type': 'application/json'} };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(path, opts);
+  return r.json();
+}
+
+// ── Track list ──
+async function loadTracks() {
+  const r = await api('/api/status');
+  const sel = document.getElementById('track-select');
+  if (r.tracks) {
+    sel.innerHTML = '';
+    r.tracks.forEach(t => sel.add(new Option(t, t)));
+  }
+}
+
+// ── Audio control ──
+async function sandboxStart() {
+  const track = document.getElementById('track-select').value;
+  log('Starting sandbox: ' + track);
+  const r = await api('/api/sandbox/start', 'POST', {track});
+  if (r.ok) {
+    audioRunning = true;
+    currentTrack = track;
+    updateAudioUI();
+    loadInstrumentMap(track);
+    log('Sandbox active: ' + track);
+    // Push current slider state
+    pushAllSliders();
+  } else {
+    log('ERR: ' + r.error);
+  }
+}
+
+async function sandboxStop() {
+  const r = await api('/api/sandbox/stop', 'POST');
+  if (r.ok) {
+    audioRunning = false;
+    currentTrack = null;
+    updateAudioUI();
+    log('Sandbox stopped');
+  } else {
+    log('ERR: ' + r.error);
+  }
+}
+
+async function switchTrack() {
+  if (!audioRunning) { log('Start audio first'); return; }
+  const track = document.getElementById('track-select').value;
+  log('Switching to: ' + track);
+  const r = await api('/api/sandbox/start', 'POST', {track});
+  if (r.ok) {
+    currentTrack = track;
+    updateAudioUI();
+    loadInstrumentMap(track);
+    log('Now playing: ' + track);
+    pushAllSliders();
+  } else {
+    log('ERR: ' + r.error);
+  }
+}
+
+async function killAll() {
+  const r = await api('/api/kill-all', 'POST');
+  audioRunning = false;
+  currentTrack = null;
+  updateAudioUI();
+  r.ok ? log(r.message) : log('ERR: ' + r.error);
+}
+
+function updateAudioUI() {
+  const dot = document.getElementById('audio-dot');
+  dot.className = 'dot ' + (audioRunning ? 'dot-on' : 'dot-off');
+  document.getElementById('audio-label').textContent = audioRunning ? 'Sandbox: ' + currentTrack : 'Stopped';
+}
+
+// ── Slider handling ──
+function onSlider(param, rawVal) {
+  const val = (rawVal / 100).toFixed(2);
+  document.getElementById('val-' + param).textContent = val;
+  schedulePush(param, parseFloat(val));
+  highlightActiveParams();
+}
+
+function schedulePush(key, val) {
+  pendingPush[key] = val;
+  if (!pushTimer) {
+    pushTimer = setTimeout(flushPush, 100);
+  }
+}
+
+async function flushPush() {
+  pushTimer = null;
+  if (!audioRunning) return;
+  const data = {...pendingPush};
+  pendingPush = {};
+  await api('/api/sandbox/push', 'POST', data);
+}
+
+function pushAllSliders() {
+  const params = ['heat', 'price', 'velocity', 'trade_rate', 'spread'];
+  const data = {};
+  params.forEach(p => {
+    data[p] = parseInt(document.getElementById('sl-' + p).value) / 100;
+  });
+  // Include tone
+  data.tone = document.getElementById('tone-1').classList.contains('active') ? 1 : 0;
+  data.ambient_mode = document.getElementById('ambient-1').classList.contains('active') ? 1 : 0;
+  if (audioRunning) {
+    api('/api/sandbox/push', 'POST', data);
+  }
+}
+
+// ── Tone toggle ──
+function setTone(val) {
+  document.getElementById('tone-0').classList.toggle('active', val === 0);
+  document.getElementById('tone-1').classList.toggle('active', val === 1);
+  schedulePush('tone', val);
+}
+
+// ── Ambient toggle ──
+function setAmbient(val) {
+  document.getElementById('ambient-0').classList.toggle('active', val === 0);
+  document.getElementById('ambient-1').classList.toggle('active', val === 1);
+  schedulePush('ambient_mode', val);
+}
+
+// ── Event triggers ──
+async function fireEvent(key, val) {
+  if (!audioRunning) { log('Start audio first'); return; }
+  const data = {};
+  if (key === 'event_spike') {
+    data.event_spike = 1;
+    log('Fired: heat spike');
+  } else {
+    data[key] = val;
+    log('Fired: ' + key + ' = ' + val);
+  }
+  await api('/api/sandbox/push', 'POST', data);
+  // Auto-reset one-shot events after a moment
+  if (key === 'event_spike' || key === 'event_price_move') {
+    setTimeout(async () => {
+      const reset = {};
+      reset[key] = 0;
+      await api('/api/sandbox/push', 'POST', reset);
+    }, 500);
+  }
+}
+
+// ── Presets ──
+const PRESETS = {
+  calm:     { heat: 15, price: 50, velocity: 5,  trade_rate: 10, spread: 10 },
+  moderate: { heat: 45, price: 55, velocity: 25, trade_rate: 40, spread: 20 },
+  intense:  { heat: 85, price: 70, velocity: 60, trade_rate: 80, spread: 40 },
+  zero:     { heat: 0,  price: 0,  velocity: 0,  trade_rate: 0,  spread: 0  },
+  max:      { heat: 100, price: 100, velocity: 100, trade_rate: 100, spread: 100 },
+};
+
+function applyPreset(name) {
+  const p = PRESETS[name];
+  if (!p) return;
+  Object.entries(p).forEach(([key, val]) => {
+    document.getElementById('sl-' + key).value = val;
+    document.getElementById('val-' + key).textContent = (val / 100).toFixed(2);
+    pendingPush[key] = val / 100;
+  });
+  if (!pushTimer) pushTimer = setTimeout(flushPush, 100);
+  highlightActiveParams();
+  log('Preset: ' + name);
+}
+
+// ── Instrument Map ──
+async function loadInstrumentMap(track) {
+  const el = document.getElementById('instrument-map');
+  el.innerHTML = '<div style="color:#444; font-size:12px;">Analyzing track...</div>';
+
+  const r = await api('/api/track/analyze?track=' + encodeURIComponent(track));
+  if (!r.ok) {
+    el.innerHTML = '<div style="color:#ff4444; font-size:12px;">Failed to analyze track</div>';
+    return;
+  }
+
+  trackLoops = r.loops;
+  renderInstrumentMap();
+}
+
+function renderInstrumentMap() {
+  const el = document.getElementById('instrument-map');
+  if (!trackLoops.length) {
+    el.innerHTML = '<div style="color:#444; font-size:12px;">No live_loops found in track.</div>';
+    return;
+  }
+
+  const allParams = ['heat', 'price', 'velocity', 'trade_rate', 'spread', 'tone',
+                     'event_spike', 'event_price_move', 'market_resolved', 'ambient_mode'];
+
+  // Get current slider values to highlight which params are "active" (non-zero)
+  const activeParams = getActiveParams();
+
+  el.innerHTML = trackLoops.map(loop => {
+    const cls = loop.connected ? 'connected' : 'disconnected';
+    const nameCls = loop.connected ? 'connected' : 'disconnected';
+    const paramTags = loop.params.length > 0
+      ? loop.params.map(p => {
+          const isActive = activeParams.has(p);
+          return '<span class="param-tag' + (isActive ? ' active' : '') + '">' + p + '</span>';
+        }).join('')
+      : '<span class="no-params">no data connection</span>';
+
+    return '<div class="loop-card ' + cls + '">'
+      + '<div class="loop-name ' + nameCls + '">' + loop.name + '</div>'
+      + '<div class="loop-params">' + paramTags + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+function getActiveParams() {
+  const active = new Set();
+  const sliders = ['heat', 'price', 'velocity', 'trade_rate', 'spread'];
+  sliders.forEach(p => {
+    const v = parseInt(document.getElementById('sl-' + p).value);
+    if (v > 5) active.add(p);
+  });
+  if (document.getElementById('tone-1').classList.contains('active')) active.add('tone');
+  if (document.getElementById('tone-0').classList.contains('active')) active.add('tone');
+  active.add('tone'); // tone is always relevant
+  return active;
+}
+
+function highlightActiveParams() {
+  if (trackLoops.length) renderInstrumentMap();
+}
+
+// ── Init ──
+loadTracks();
+updateAudioUI();
+log('Track Sandbox ready. Pick a track and click Start.');
 </script>
 </body>
 </html>
@@ -1049,8 +1736,14 @@ def create_app():
     app.router.add_post("/api/unpin", handle_unpin)
     app.router.add_post("/api/autonomous", handle_autonomous)
     app.router.add_post("/api/kill-all", handle_kill_all)
+    app.router.add_post("/api/volume", handle_volume)
     app.router.add_get("/api/browse", handle_browse)
     app.router.add_get("/api/categories", handle_categories)
+    app.router.add_get("/api/track/analyze", handle_track_analyze)
+    app.router.add_get("/sandbox", handle_sandbox_page)
+    app.router.add_post("/api/sandbox/start", handle_sandbox_start)
+    app.router.add_post("/api/sandbox/stop", handle_sandbox_stop)
+    app.router.add_post("/api/sandbox/push", handle_sandbox_push)
 
     return app
 
