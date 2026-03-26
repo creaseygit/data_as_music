@@ -24,17 +24,17 @@ const oracleTrack = {
     // Bigger move → more chords (2-5)
     const num = Math.min(5, Math.max(2, 2 + Math.floor(mag * 5)));
 
-    // Scale degrees: ascending for up, descending for down
-    const degrees = [];
+    // Scale degree triads: [root,3rd,5th] ascending or descending
+    const triads = [];
     if (pd > 0) {
-      for (let i = 0; i < num; i++) degrees.push(i);
+      for (let i = 0; i < num; i++) triads.push(`[${i},${i+2},${i+4}]`);
     } else {
-      for (let i = num - 1; i >= 0; i--) degrees.push(i);
+      for (let i = num - 1; i >= 0; i--) triads.push(`[${i},${i+2},${i+4}]`);
     }
 
     // Pad with rests so it doesn't loop too fast
     const rests = Array(Math.max(1, 8 - num)).fill('-');
-    const pat = [...degrees, ...rests].join(' ');
+    const pat = [...triads, ...rests].join(' ');
 
     // Volume scales with magnitude and market activity
     const v = data.velocity || 0.1;
@@ -44,7 +44,6 @@ const oracleTrack = {
 
     return n(pat)
       .scale(scaleName)
-      .off(1/8, add("2,4"))   // strum in the third and fifth
       .sound("piano")
       .gain(vol)
       .room(0.6)
