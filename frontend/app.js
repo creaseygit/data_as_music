@@ -205,7 +205,7 @@ function onWsStatus(data) {
       if (!groups[key]) return;
       const og = document.createElement('optgroup');
       og.label = label;
-      groups[key].forEach(t => og.add(new Option(t.label, t.name)));
+      groups[key].forEach(t => og.appendChild(new Option(t.label, t.name)));
       sel.add(og);
     });
   }
