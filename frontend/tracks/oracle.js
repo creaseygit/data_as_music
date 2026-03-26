@@ -31,8 +31,10 @@ const oracleTrack = {
     const t = data.tone !== undefined ? data.tone : 1;
     const scaleName = t === 1 ? 'C4:major' : 'A3:minor';
 
-    // 2-5 chords based on magnitude
-    const num = Math.min(5, Math.max(2, 2 + Math.floor(mag * 5)));
+    // 2-5 notes based on magnitude of price move.
+    // Bias toward longer runs: use sqrt to push values up the curve.
+    const t01 = (mag - 0.1) / 0.9;                       // 0 at threshold, 1 at max
+    const num = Math.min(5, 2 + Math.floor(Math.sqrt(t01) * 4)); // 2,3,4,5
 
     // Direction: positive = ascending, negative = descending
     const dir = pd > 0 ? 'up' : 'down';
@@ -44,16 +46,18 @@ const oracleTrack = {
       return this._cachedPattern;
     }
 
-    // Scale degrees: ascending for up, descending for down
+    // Scale degrees spaced by 2 (thirds) for clear pitch separation
     const degrees = [];
     if (pd > 0) {
-      for (let i = 0; i < num; i++) degrees.push(i);
+      for (let i = 0; i < num; i++) degrees.push(i * 2);
     } else {
-      for (let i = num - 1; i >= 0; i--) degrees.push(i);
+      for (let i = num - 1; i >= 0; i--) degrees.push(i * 2);
     }
 
-    // Pad with rests so it doesn't loop too fast
-    const rests = Array(Math.max(1, 8 - num)).fill('-');
+    // Each note gets its own slot; pad with rests so it doesn't loop too fast.
+    // cpm(12) → 5s cycle. With 5 notes + 3 rests = 8 slots, each slot ≈ 0.6s.
+    // That gives enough separation to clearly hear ascending vs descending.
+    const rests = Array(Math.max(2, 8 - num)).fill('~');
     const pat = [...degrees, ...rests].join(' ');
 
     // Base volume scales with magnitude and market activity
@@ -71,7 +75,7 @@ const oracleTrack = {
       .late(rand.range(0, 0.02))
       .room(rand.range(0.4, 0.7))
       .clip(2)
-      .cpm(20);
+      .cpm(12);
 
     this._cachedPattern = result;
     this._cachedKey = key;
