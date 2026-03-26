@@ -31,6 +31,8 @@ button {
   font-family: inherit; font-size: 13px; transition: all 0.15s;
 }
 button:hover { background: #00ff88; color: #0a0a0f; }
+button.ready { background: #00ff88; color: #0a0a0f; font-weight: bold; }
+button.ready:hover { background: #00cc66; }
 button.danger { border-color: #ff4444; color: #ff4444; }
 button.danger:hover { background: #ff4444; color: #0a0a0f; }
 button.active { background: #00ff88; color: #0a0a0f; font-weight: bold; }

@@ -74,16 +74,9 @@ function applyHashOnce() {
     log('Loading market from URL: ' + params.market);
   }
 
-  // Auto-start audio on first user interaction (browsers block autoplay without gesture)
+  // Market is pinned and data will flow — user just needs to press Play
   if (params.market || params.live) {
-    const autoStart = () => {
-      document.removeEventListener('click', autoStart);
-      document.removeEventListener('keydown', autoStart);
-      if (!audioRunning) startAudio();
-    };
-    document.addEventListener('click', autoStart, { once: false });
-    document.addEventListener('keydown', autoStart, { once: false });
-    log('Click anywhere to start audio.');
+    log('Press Play to start audio.');
   }
 }
 
@@ -294,7 +287,7 @@ function updateAudioUI() {
     prompt.style.display = 'none';
     grid.style.display = '';
     btn.textContent = audioRunning ? 'Stop' : 'Play';
-    btn.className = audioRunning ? 'danger' : '';
+    btn.className = audioRunning ? 'danger' : 'ready';
   } else {
     prompt.style.display = '';
     grid.style.display = 'none';
