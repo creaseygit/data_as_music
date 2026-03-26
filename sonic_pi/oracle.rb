@@ -9,7 +9,7 @@ set :event_price_move, 0
 set :market_resolved, 0
 set :ambient_mode, 0
 
-set_volume! 0.5
+set_volume! 0.3
 prev_price = 0.5
 
 live_loop :price_watch do
@@ -20,11 +20,11 @@ live_loop :price_watch do
   delta = p - prev_price
   mag = delta.abs
   prev_price = p
-  if mag > 0.04
+  if mag > 0.01
     root = t == 1 ? :c4 : :a3
     sc = t == 1 ? :major : :minor
-    num = mag > 0.08 ? 4 : 2 + (mag * 25).to_i
-    num = [[num, 2].max, 5].min
+    num = 2 + ((mag - 0.01) * 50).to_i
+    num = [[num, 2].max, 6].min
     ns = scale(root, sc, num_octaves: 2)
     if delta > 0
       notes = ns.take(num)
@@ -32,7 +32,7 @@ live_loop :price_watch do
       notes = ns.take(num).reverse
     end
     activity = [0.3 + (v * 0.4) + (tr * 0.3), 1.0].min
-    vol = [[0.02 + (mag * 0.8), 0.02].max, 0.08].min * activity
+    vol = [[0.02 + (mag * 0.4), 0.02].max, 0.05].min * activity
     hard = [[0.1 + (mag * 1.2), 0.1].max, 0.3].min
     with_fx :reverb, room: 0.6, damp: 0.5 do
       notes.each_with_index do |n, i|
@@ -47,62 +47,3 @@ live_loop :price_watch do
   sleep 3
 end
 
-live_loop :price_event do
-  pm = get(:event_price_move)
-  t = get(:tone)
-  v = get(:velocity)
-  tr = get(:trade_rate)
-  if pm != 0
-    set :event_price_move, 0
-    root = t == 1 ? :c4 : :a3
-    sc = t == 1 ? :major : :minor
-    ns = scale(root, sc, num_octaves: 2)
-    if pm == 1
-      notes = ns.take(7)
-    else
-      notes = ns.take(7).reverse
-    end
-    activity = [0.3 + (v * 0.4) + (tr * 0.3), 1.0].min
-    with_fx :reverb, room: 0.7, damp: 0.4 do
-      notes.each_with_index do |n, i|
-        frac = i.to_f / (notes.length - 1)
-        base = pm == 1 ? 0.06 * (0.6 + frac * 0.4) : 0.06 * (1.0 - frac * 0.3)
-        synth :piano, note: n, amp: base * activity * 0.95,
-          hard: 0.2, vel: 0.3, pan: (frac - 0.5) * 0.4
-        sleep 0.3
-      end
-    end
-  end
-  sleep 0.25
-end
-
-live_loop :resolved do
-  mr = get(:market_resolved)
-  if mr != 0
-    set :market_resolved, 0
-    if mr == 1
-      notes = scale(:c4, :major, num_octaves: 1)
-      with_fx :reverb, room: 0.9, damp: 0.3 do
-        notes.each_with_index do |n, i|
-          frac = i.to_f / (notes.length - 1)
-          synth :piano, note: n, amp: 0.07 * (0.5 + frac * 0.5) * 0.95,
-            hard: 0.15 + (frac * 0.15), vel: 0.3 + (frac * 0.2),
-            pan: (frac - 0.5) * 0.4
-          sleep 0.3
-        end
-      end
-    else
-      notes = scale(:a4, :minor, num_octaves: 1).reverse
-      with_fx :reverb, room: 0.9, damp: 0.6 do
-        notes.each_with_index do |n, i|
-          frac = i.to_f / (notes.length - 1)
-          synth :piano, note: n, amp: 0.06 * (1.0 - frac * 0.3) * 0.95,
-            hard: 0.2 - (frac * 0.05), vel: 0.3 - (frac * 0.1),
-            pan: (0.5 - frac) * 0.4
-          sleep 0.3
-        end
-      end
-    end
-  end
-  sleep 0.5
-end

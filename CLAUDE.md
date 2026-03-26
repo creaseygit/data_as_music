@@ -134,12 +134,10 @@ Markets fetched via `fetch_markets_by_event_slug()` have the parent event's slug
 ## Tracks
 
 ### oracle.rb
-Minimal piano-only alert track. Mostly silent — sound is earned by significant market movement:
-- **`price_watch`** — Detects price deltas > 4¢. Plays ascending/descending piano motifs (2–5 notes) using scale degree patterns. C major when bullish, A minor when bearish. Volume scales with velocity, trade_rate, and move magnitude
-- **`price_event`** — Triggers on `event_price_move` (>3¢ jump). 7-note arpeggio. Volume scales with velocity and trade_rate
-- **`resolved`** — 7-note figure on market resolution: triumphant C major ascent or mournful A minor descent
+Minimal piano-only track with a single `price_watch` loop. Responds to any price movement > 1¢:
+- **`price_watch`** — Detects price deltas > 1¢. Plays ascending/descending piano motifs (2–6 notes) scaling with move magnitude. C major when bullish, A minor when bearish. Volume scales with velocity, trade_rate, and move magnitude but kept quiet (master volume 0.3, per-note amp capped at 0.05)
 
-Reads `:price`, `:tone`, `:velocity`, `:trade_rate`, `:event_price_move`, and `:market_resolved`. Ignores heat, spread.
+Reads `:price`, `:tone`, `:velocity`, `:trade_rate`. Ignores heat, spread, events, resolution.
 
 ### mezzanine.rb
 Sigur Rós "Teardrop"-inspired ambient track, BPM 80. Am → Am → F → G progression. Features teardrop arpeggio (pluck), sub bass, bass line (tb303 with 4 phrase variants), kick, kick ghost, snare, ambient pad. Velocity-driven octave jumps in arpeggio. Heat-driven inverse amp (louder when calm).
