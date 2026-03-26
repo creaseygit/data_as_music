@@ -6,7 +6,7 @@
 
 ## Strudel / Browser Audio
 - **User gesture required** — Browsers require a user interaction (click) before starting Web Audio
-- **Piano samples load from CDN** — The VCSL Salamander piano loads from GitHub on first init. Requires network access; browser caches after first load
+- **Piano samples load from CDN** — Salamander Grand Piano samples load from Strudel's BunnyCDN (`strudel.b-cdn.net`) on first init. Requires network access; browser caches after first load
 
 ## Polymarket API
 - **`clobTokenIds`** from Gamma API is a JSON string, not a list — parsed by `_parse_clob_token_ids()` in `gamma.py`

@@ -17,7 +17,7 @@ const audioEngine = (() => {
   async function init() {
     if (initialized) return;
     await initStrudel({
-      prebake: () => samples('github:sgossner/VCSL/master/piano/salamander', { tag: 'piano' }),
+      prebake: () => samples('https://strudel.b-cdn.net/piano.json', 'https://strudel.b-cdn.net/piano/', { prebake: true }),
     });
     initialized = true;
     console.log('[Audio] Strudel initialized');

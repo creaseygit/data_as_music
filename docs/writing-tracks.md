@@ -98,7 +98,7 @@ Add metadata as comments at the top of the file for the server to parse:
 
 ## Sounds
 
-Tracks use Strudel's built-in oscillators (`"sine"`, `"sawtooth"`, `"triangle"`) and a sampled **piano** loaded from the VCSL Salamander Grand Piano on CDN:
+Tracks use Strudel's built-in oscillators (`"sine"`, `"sawtooth"`, `"triangle"`) and a sampled **piano** loaded from Strudel's Salamander Grand Piano CDN (`strudel.b-cdn.net`):
 ```javascript
 note("c4 e4 g4").sound("piano").gain(0.3).room(0.5)
 note("<c2 f2>").sound("sawtooth").lpf(200).gain(0.1)

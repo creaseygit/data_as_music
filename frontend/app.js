@@ -242,18 +242,18 @@ function onWsStatus(data) {
 function onWsMarketData(data) {
   // Update now-playing display
   const np = document.getElementById('np');
-  if (np.style.display !== '') {
-    // Market data received but no market_info yet — just update values
-  }
-  if (np.style.display === 'none') return;
+  if (!np || np.style.display === 'none') return;
 
   const mood = document.getElementById('np-mood');
+  const npData = document.getElementById('np-data');
+  if (!mood || !npData) return;
+
   const pct = (data.price * 100).toFixed(1);
   const toneStr = data.tone === 1 ? 'bullish' : 'bearish';
   mood.textContent = toneStr.toUpperCase() + '  ' + pct + '%';
   mood.className = 'np-mood ' + toneStr;
 
-  document.getElementById('np-data').innerHTML = [
+  npData.innerHTML = [
     ['HEAT', data.heat], ['PRICE', data.price], ['VELOCITY', data.velocity],
     ['TRADE RATE', data.trade_rate], ['SPREAD', data.spread], ['TONE', data.tone ? 'MAJ' : 'MIN']
   ].map(([l, v]) => '<div class="data-cell"><div class="lbl">' + l + '</div><div class="val">' + v + '</div></div>').join('');
