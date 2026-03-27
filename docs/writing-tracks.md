@@ -106,25 +106,53 @@ Tracks are **auto-discovered and dynamically loaded** — no `index.html` change
 
 ## Sounds
 
-Tracks use Strudel's built-in oscillators (`"sine"`, `"sawtooth"`, `"triangle"`) and a sampled **piano** loaded from Strudel's Salamander Grand Piano CDN (`strudel.b-cdn.net`):
+Tracks use Strudel's built-in oscillators, sampled instruments, and two loaded sample libraries:
+
+1. **Salamander Grand Piano** (`"piano"`) — Multi-velocity acoustic grand piano from CDN
+2. **Dirt-Samples** — 200+ sample banks from TidalCycles (drums, cymbals, percussion)
+3. **GM Soundfonts** (`"gm_*"`) — General MIDI instruments, lazy-loaded from CDN on first use
+
 ```javascript
-note("c4 e4 g4").sound("piano").gain(0.3).room(0.5)
-note("<c2 f2>").sound("sawtooth").lpf(200).gain(0.1)
+note("c4 e4 g4").sound("piano").gain(0.3).room(0.5)        // acoustic piano
+note("c2 e2 a2").sound("gm_acoustic_bass").gain(0.3)       // upright bass
+note("<c2 f2>").sound("sawtooth").lpf(200).gain(0.1)        // synth oscillator
+sound("cr:0").speed(0.95).gain(0.06).end(0.3)               // ride cymbal
 ```
 
-## Synth Reference
+## Sound Reference
+
+### Sampled Instruments (acoustic)
 
 | Sound | Usage | Notes |
 | --- | --- | --- |
-| `"piano"` | `.sound("piano")` | Built-in sampled piano (CDN). Use for all piano sounds |
+| `"piano"` | `.sound("piano")` | Salamander Grand Piano (CDN). Multi-velocity, ~3 semitones per sample |
+| `"gm_acoustic_bass"` | `.sound("gm_acoustic_bass")` | GM upright bass. Use with `note()` for walking bass lines |
+| `"gm_epiano1"` | `.sound("gm_epiano1")` | GM Rhodes-style electric piano |
+| `"gm_epiano2"` | `.sound("gm_epiano2")` | GM DX7-style electric piano |
+| `"gm_vibraphone"` | `.sound("gm_vibraphone")` | GM vibraphone |
+| `"gm_acoustic_guitar_nylon"` | `.sound("gm_acoustic_guitar_nylon")` | GM nylon guitar |
+| `"gm_tenor_sax"` | `.sound("gm_tenor_sax")` | GM tenor saxophone |
+
+### Drum Samples (Dirt-Samples)
+
+| Sound | Usage | Notes |
+| --- | --- | --- |
+| `"bd"` | `.sound("bd")` | Kick drum (24 variants via `bd:0`–`bd:23`) |
+| `"sd"` | `.sound("sd")` | Snare drum (2 variants) |
+| `"hh"` | `.sound("hh")` | Closed hi-hat (13 variants) |
+| `"cr"` | `.sound("cr")` | **Ride cymbal** (6 variants `cr:0`–`cr:5`). Use for ride patterns |
+| `"ho"` | `.sound("ho")` | Open hi-hat (6 variants) |
+| `"cc"` | `.sound("cc")` | Crash cymbal (6 variants) |
+| `"cb"` | `.sound("cb")` | Cowbell |
+
+### Oscillators (synthetic)
+
+| Sound | Usage | Notes |
+| --- | --- | --- |
 | `"sine"` | `.sound("sine")` | Pure sine. Good for sub bass |
 | `"sawtooth"` | `.sound("sawtooth")` | Saw wave. Good for bass lines, pads with `.lpf()` |
 | `"triangle"` | `.sound("triangle")` | Triangle wave. Good for plucks, arps, pads |
 | `"pink"` | `.sound("pink")` | Pink noise synth. Good for vinyl hiss / texture |
-| `"bd"` | `.sound("bd")` | Kick drum (Dirt-Samples, 24 variants via `bd:0`–`bd:23`) |
-| `"sd"` | `.sound("sd")` | Snare drum (Dirt-Samples, 2 variants) |
-| `"hh"` | `.sound("hh")` | Closed hi-hat (Dirt-Samples, 13 variants) |
-| `"cb"` | `.sound("cb")` | Cowbell (Dirt-Samples) |
 ## Strudel Effects Reference
 
 | Effect | Usage | Notes |
@@ -189,7 +217,7 @@ note("c3 ~ e3 ~ g3").sound("sine")  // ~ = silence
 Piano chord alert that fires on price moves. Uses `price_move` (edge-detected, only non-zero during active movement): magnitude sets chord count (2-5), sign sets direction (ascending=up, descending=down). Silent when price is flat. C major when bullish (tone=1), A minor when bearish (tone=0). Uses pre-defined triad chord runs via polyphonic mini-notation `[deg,deg+2,deg+4]`.
 
 ### jazz_alerts.js
-Jazz trio with Oracle-style reactive piano. 100 BPM (cpm 25). Ride cymbal uses two-layer spang-a-lang: quarter-note pulse on all 4 beats plus triplet skip notes on the last triplet of beats 2 and 4 (12-element grid). Hi-hat foot chicks on 2 and 4. Feathered kick on all 4 quarters (barely audible). Snare ghost notes on triplet partials (12-element grid, 65% `degradeBy`) for conversational comping. Walking bass (sawtooth, prominent gain ~0.28) plays chord-tone quarter notes with chromatic approach notes on beat 4 — Cmaj7→Am7→Dm7→G7 (major, I-vi-ii-V) or Am7→Dm7→Em7→Am7 (minor, i-iv-v-i). Sub bass (sine) on roots. Piano chords use Oracle's `price_move` logic with jazz 7th voicings. Energy-gated layers: cross-stick comping, ride bell accents, snare bombs, hi-hat foot splashes — all on triplet grids.
+Jazz trio with reactive piano. 100 BPM (cpm 25). All acoustic samples: ride cymbal (`cr` samples, 2-layer spang-a-lang), walking upright bass (`gm_acoustic_bass` GM soundfont), Salamander grand piano voicings. Ride uses quarter-note pulse on all 4 beats plus triplet skip notes on beats 2 and 4 (12-element grid). Hi-hat foot chicks on 2 and 4. Feathered kick barely audible. Snare ghost notes on triplet partials (65% `degradeBy`). Bass walks chord tones with chromatic approaches — Cmaj7→Am7→Dm7→G7 (major) or Am7→Dm7→Em7→Am7 (minor). Piano 7th-chord voicings trigger on `price_move`. Energy-gated: cross-stick, ride bell (`cr:3` high speed), snare bombs, hi-hat splashes. Consistent room reverb across all layers for cohesive acoustic space.
 
 ### mezzanine.js
 Massive Attack trip-hop, 80 BPM. Am → Am → Fm → Gm progression (4-bar cycle). Half-time beat: kick on 1 and "and" of 2 (`bd:3`), snare on 3 only (`sd:1`), 8th-note hi-hats with `degradeBy` for human feel. Deep saw bass with root-fifth phrases, sub bass (sine) on roots. Pad triads (triangle + reverb), vinyl hiss. Activity-gated: open hat, ghost kicks, dub echo stab (delay/feedback), cowbell rim clicks. Tone switches between natural minor (bullish) and darker voicings (bearish). Events trigger piano arpeggios and cymbal crashes.
