@@ -181,6 +181,9 @@ note("c3 ~ e3 ~ g3").sound("sine")  // ~ = silence
 ### oracle.js
 Piano chord alert that fires on price moves. Uses `price_move` (edge-detected, only non-zero during active movement): magnitude sets chord count (2-5), sign sets direction (ascending=up, descending=down). Silent when price is flat. C major when bullish (tone=1), A minor when bearish (tone=0). Uses pre-defined triad chord runs via polyphonic mini-notation `[deg,deg+2,deg+4]`.
 
+### jazz_alerts.js
+Jazz trio with Oracle-style reactive piano. 100 BPM. Continuous jazz rhythm section: ride cymbal (classic 1, &2, 3, &4 pattern), hi-hat foot on 2 and 4, sparse ghosted kick, brush-like snare ghost notes with heavy `degradeBy`. Walking bass (sawtooth) outlines chord tones with approach notes — Cmaj7→Am7→Dm7→G7 (major, I-vi-ii-V) or Am7→Dm7→Em7→Am7 (minor, i-iv-v-i). Sub bass (sine) on chord roots. Piano chords use Oracle's `price_move` logic but with jazz 7th voicings (root, 3rd, 5th, 7th). Activity-gated: cross-stick, extra ride ghosts, brush swirl (pink noise). Events: cymbal swell (spike), scale run with delay (price_move), resolution arpeggio (resolved).
+
 ### mezzanine.js
 Massive Attack trip-hop, 80 BPM. Am → Am → Fm → Gm progression (4-bar cycle). Half-time beat: kick on 1 and "and" of 2 (`bd:3`), snare on 3 only (`sd:1`), 8th-note hi-hats with `degradeBy` for human feel. Deep saw bass with root-fifth phrases, sub bass (sine) on roots. Pad triads (triangle + reverb), vinyl hiss. Activity-gated: open hat, ghost kicks, dub echo stab (delay/feedback), cowbell rim clicks. Tone switches between natural minor (bullish) and darker voicings (bearish). Events trigger piano arpeggios and cymbal crashes.
 
