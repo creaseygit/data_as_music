@@ -222,6 +222,9 @@ Jazz trio with reactive piano. 100 BPM (cpm 25). All acoustic samples: ride cymb
 ### mezzanine.js
 Massive Attack trip-hop, 80 BPM. Am → Am → Fm → Gm progression (4-bar cycle). Half-time beat: kick on 1 and "and" of 2 (`bd:3`), snare on 3 only (`sd:1`), 8th-note hi-hats with `degradeBy` for human feel. Deep saw bass with root-fifth phrases, sub bass (sine) on roots. Pad triads (triangle + reverb), vinyl hiss. Activity-gated: open hat, ghost kicks, dub echo stab (delay/feedback), cowbell rim clicks. Tone switches between natural minor (bullish) and darker voicings (bearish). Events trigger piano arpeggios and cymbal crashes.
 
+### jazz_trio.js
+Jazz piano trio over Autumn Leaves changes, 120 BPM (cpm 30). All acoustic samples: ride cymbal (`cr` 2-layer spang-a-lang), walking upright bass (`gm_acoustic_bass`), Salamander grand piano comping and melody. 16-bar walking bass (two choruses with variations). 8-bar syncopated comping with rootless voicings (3rd, 5th, 7th) embedded directly in mini-notation rhythms. **Directional price expression**: `price_move` sign drives ascending/descending scale runs in both single-note melody and 7th-chord voicings (Oracle-style `getScaleNotes` approach). Magnitude controls run length (2-8 melody notes, 2-5 chords). Bb major (tone=1) or G minor (tone=0) — full progression switch across bass, comping, and directional layers. **Activity scaling**: all layer gains scale with `heat` — very quiet at low activity, full energy at high. Energy-gated layers add complexity progressively: ghost snare (h>0.2), cross-stick (tr>0.25), ride bell (h>0.5), snare bombs (tr>0.5), hi-hat splashes (v>0.4), kick bombs (h>0.6), turnaround fill (h>0.7). `spread` controls room reverb spaciousness. `price` controls bass LPF brightness. Comping gain ducks when directional layers are active.
+
 ## Legacy References
 
 - **Sonic Pi originals** were removed from the repo (Strudel migration complete). Git history has them if needed.

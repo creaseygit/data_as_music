@@ -54,7 +54,7 @@ CloudFlare → Nginx → Python aiohttp (data only) ←→ Polymarket APIs
 | `frontend/app.js`         | UI logic: browse tabs, market picker, sliders, now-playing display, dynamic track loader                              |
 | `frontend/ws-client.js`   | WebSocket client with auto-reconnect                                                                                  |
 | `frontend/audio-engine.js`| Strudel init, track registry, pattern lifecycle (AudioContext suspend/resume), silence handling, music theory utils    |
-| `frontend/tracks/*.js`    | Track files (auto-discovered, dynamically loaded): `oracle.js` (alert piano chords), `mezzanine.js` (trip-hop), `jazz_alerts.js` (jazz trio + alert piano). Drop a new `.js` file here and restart the server — no other changes needed |
+| `frontend/tracks/*.js`    | Track files (auto-discovered, dynamically loaded): `oracle.js` (alert piano chords), `mezzanine.js` (trip-hop), `jazz_alerts.js` (jazz trio + alert piano), `jazz_trio.js` (Autumn Leaves jazz trio, directional price movement). Drop a new `.js` file here and restart the server — no other changes needed |
 | `deploy/`                 | Nginx config, systemd service, EC2 setup script                                                                       |
 
 ## Tech Stack
