@@ -1,0 +1,16 @@
+{
+  "name": "polymarket-dj-strudel-bundle",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Custom Strudel bundle with soundfonts for Polymarket DJ",
+  "scripts": {
+    "build": "node esbuild.config.mjs"
+  },
+  "dependencies": {
+    "@strudel/web": "1.3.0",
+    "@strudel/soundfonts": "1.3.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

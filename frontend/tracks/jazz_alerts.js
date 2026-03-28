@@ -109,10 +109,8 @@ const jazzAlertsTrack = (() => {
           );
 
       layers.push(
-        bassLine.note().sound("triangle")
-          .gain(0.28 + h * 0.08)
-          .lpf(500).hpf(60)
-          .attack(0.008).decay(0.25).sustain(0.6).release(0.15)
+        bassLine.note().sound("gm_acoustic_bass")
+          .gain(0.32 + h * 0.08)
           .room(rm * 0.5).rsize(rs)
       );
 

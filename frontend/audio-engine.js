@@ -17,10 +17,18 @@ const audioEngine = (() => {
 
   async function init() {
     if (initialized) return;
+    const CDN = 'https://strudel.b-cdn.net';
+    const DM = `${CDN}/tidal-drum-machines/machines`;
     await initStrudel({
       prebake: () => Promise.all([
-        samples('https://strudel.b-cdn.net/piano.json', 'https://strudel.b-cdn.net/piano/', { prebake: true }),
+        samples(`${CDN}/piano.json`, `${CDN}/piano/`, { prebake: true }),
         samples('github:tidalcycles/dirt-samples'),
+        // VCSL instrument samples (orchestral percussion, etc.)
+        samples(`${CDN}/vcsl.json`, `${CDN}/VCSL/`, { prebake: true }),
+        // Tidal drum machines (Roland TR-808 etc.)
+        samples(`${CDN}/tidal-drum-machines.json`, `${DM}/`, { prebake: true }),
+        // GM soundfonts (acoustic bass, strings, brass, etc.)
+        registerSoundfonts(),
       ]),
     });
 
@@ -36,13 +44,15 @@ const audioEngine = (() => {
         sound("sd:0 sd:1"),
         sound("hh:0 hh:2 hh:6 hh:8"),
         sound("cb:0"),
-        // Ride cymbals and jazz kit (Dirt-Samples)
+        // Ride cymbals (Dirt-Samples cr + tidal-drum-machines rd)
         sound("cr:0 cr:1 cr:2 cr:3"),
-        // Synth bass warmup (triangle oscillator — GM soundfonts not in @strudel/web bundle)
-        note("c2 e2 a2 d3").sound("triangle").lpf(500).gain(0),
+        sound("rd"),
+        sound("rim"),
         // Piano — one sample per ~3 semitones, cover C3-C6 range
         // (Salamander Grand Piano loads a separate .wav per pitch zone)
         note("c3 e3 a3 c4 e4 a4 c5 e5 a5 c6").sound("piano"),
+        // GM soundfont acoustic bass — warm up the soundfont loader
+        note("c2 e2 a2").sound("gm_acoustic_bass"),
       ).gain(0).play();
       // Wait for fetches to complete — CDN samples take 2-4s
       await new Promise(r => setTimeout(r, 5000));

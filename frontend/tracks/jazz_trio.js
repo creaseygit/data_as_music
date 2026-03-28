@@ -1,7 +1,6 @@
 // ── Late Night in Bb — Jazz Piano Trio ───────────────────
 // 1:1 copy of the standalone strudel.cc track.
-// Only changes: $: → stack(), setcpm(30) → .cpm(30),
-// and 3 sample subs (rd→cr, rim→rm, gm_acoustic_bass→triangle).
+// Only changes: $: → stack(), setcpm(30) → .cpm(30).
 // category: 'music', label: 'Late Night in Bb'
 
 const jazzTrioTrack = (() => {
@@ -61,7 +60,6 @@ const jazzTrioTrack = (() => {
         .delayfeedback(0.15);
 
       // ─── Walking Bass (16-bar) ───
-      // triangle synth (gm_acoustic_bass not available in @strudel/web)
       const bass = note(`<
         [C2 D2 Eb2 E2]
         [F2 A2 Ab2 Bb2]
@@ -80,7 +78,7 @@ const jazzTrioTrack = (() => {
         [G2@2 Bb2 A2]
         [C2 Eb2 [F2 Ab2] [G2 B1]]
       >`)
-        .s("triangle")
+        .s("gm_acoustic_bass")
         .clip(1)
         .gain(
           `<
@@ -108,8 +106,7 @@ const jazzTrioTrack = (() => {
         .speed(rand.range(0.98, 1.02));
 
       // ─── Ride Cymbal (spang-a-lang) ───
-      // cr = Dirt-Samples ride (original uses rd)
-      const ride = s("cr [cr@2 cr] cr [cr@2 cr]")
+      const ride = s("rd [rd@2 rd] rd [rd@2 rd]")
         .gain("0.25 [0.28 0.12] 0.3 [0.32 0.12]");
 
       // ─── Hi-hat (8-bar pattern) ───
@@ -156,8 +153,7 @@ const jazzTrioTrack = (() => {
         .sometimesBy(0.35, (x) => x.gain(0));
 
       // ─── Cross-stick rim click (beat 4, probabilistic) ───
-      // rm = Dirt-Samples rimshot (original uses rim)
-      const rimclick = s("~ ~ ~ rm").degradeBy(0.5).gain(0.29);
+      const rimclick = s("~ ~ ~ rim").degradeBy(0.5).gain(0.29);
 
       // ─── Snare/tom fill (bar 8 only — the turnaround) ───
       const fill = s("<~ ~ ~ ~ ~ ~ ~ [~ ~ [sd ~] [~ ~ sd]]>")
