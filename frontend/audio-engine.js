@@ -189,12 +189,17 @@ const audioEngine = (() => {
 
     const eventPat = currentTrackDef.onEvent(msg.event, msg, latestData);
     if (eventPat) {
-      // Layer the event pattern on top of the current pattern
       try {
-        const base = currentTrackDef.pattern(latestData);
-        if (base) {
-          stack(base, eventPat).gain(masterVolume).play();
-          _lastTrackPat = null;  // force base pattern replay on next data push
+        if (currentTrackDef.evaluateCode) {
+          // Evaluate-mode: base pattern managed by evaluate(), just play the event
+          eventPat.gain(masterVolume).play();
+        } else if (currentTrackDef.pattern) {
+          // Pattern-mode: layer event on top of base pattern
+          const base = currentTrackDef.pattern(latestData);
+          if (base) {
+            stack(base, eventPat).gain(masterVolume).play();
+            _lastTrackPat = null;  // force base pattern replay on next data push
+          }
         }
       } catch (e) {
         console.warn('[Audio] Event pattern error:', e);
