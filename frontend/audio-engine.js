@@ -53,9 +53,18 @@ const audioEngine = (() => {
     // pattern mode) route through our gain — this is the volume slider control.
     try {
       const ctx = getAudioContext();
+      const realDest = ctx.destination;
       _masterGainNode = ctx.createGain();
       _masterGainNode.gain.value = masterVolume;
-      _masterGainNode.connect(ctx.destination);
+      _masterGainNode.connect(realDest);
+      // Copy AudioDestinationNode properties that Strudel reads internally
+      // (e.g. maxChannelCount) so getTrigger doesn't set channelCount to 0.
+      _masterGainNode.channelCount = realDest.channelCount;
+      _masterGainNode.channelCountMode = realDest.channelCountMode;
+      _masterGainNode.channelInterpretation = realDest.channelInterpretation;
+      Object.defineProperty(_masterGainNode, 'maxChannelCount', {
+        get: () => realDest.maxChannelCount,
+      });
       Object.defineProperty(ctx, 'destination', {
         get: () => _masterGainNode,
         configurable: true,
