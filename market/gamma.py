@@ -19,7 +19,7 @@ def _now_et() -> datetime:
     offset = timedelta(hours=-4) if dst_start <= utc < dst_end else timedelta(hours=-5)
     return utc + offset
 
-# Auto-generated financial event patterns on Polymarket.
+# Auto-generated financial event patterns on the prediction market.
 # Each tuple: (slug_prefix, interval_seconds, category_tag)
 LIVE_FINANCE_PATTERNS = [
     ("btc-updown-5m",  300,  "Bitcoin"),
@@ -81,7 +81,7 @@ def _normalize_market(m: dict) -> dict:
 
 def fetch_active_markets(tag: str = None) -> list[dict]:
     """
-    Fetch currently active Polymarket markets ordered by volume.
+    Fetch currently active markets ordered by volume.
     Returns a list of dicts with id, slug, question, volume, asset_ids.
     """
     params = {

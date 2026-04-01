@@ -16,6 +16,6 @@ jobs:
           username: ${{ secrets.LIGHTSAIL_USER }}
           key: ${{ secrets.LIGHTSAIL_SSH_KEY }}
           script: |
-            cd /opt/polymarket_dj
+            cd /opt/data_as_music
             git pull
-            sudo systemctl restart polymarket-dj
+            sudo systemctl restart data-as-music

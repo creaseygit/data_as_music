@@ -12,17 +12,17 @@ Connection details (IP, SSH key path, CloudFlare credentials) are in `.env` (git
 ## Instance Layout
 
 ```
-/opt/polymarket_dj/          # git clone of this repo
+/opt/data_as_music/          # git clone of this repo
 ├── venv/                    # Python virtualenv
 ├── server.py                # runs on port 8888
 ├── frontend/                # served by Nginx as /static/
 └── deploy/
-    ├── nginx.conf           # → /etc/nginx/sites-available/polymarket-dj
-    ├── polymarket-dj.service# → /etc/systemd/system/
+    ├── nginx.conf           # → /etc/nginx/sites-available/data-as-music
+    ├── data-as-music.service# → /etc/systemd/system/
     └── setup.sh             # one-time provisioning script
 ```
 
-The app runs as a systemd service under the `polymarket-dj` user.
+The app runs as a systemd service under the `data-as-music` user.
 
 ## Deploying Changes
 
@@ -35,7 +35,7 @@ The workflow uses three GitHub repo secrets: `LIGHTSAIL_IP`, `LIGHTSAIL_USER`, `
 ```bash
 source .env
 ssh -i $LIGHTSAIL_KEY $LIGHTSAIL_USER@$LIGHTSAIL_IP \
-  "cd $DEPLOY_PATH && git pull && sudo systemctl restart polymarket-dj"
+  "cd $DEPLOY_PATH && git pull && sudo systemctl restart data-as-music"
 ```
 
 The instance has a GitHub deploy key (`~/.ssh/deploy_key`) configured via `~/.ssh/config` so `git pull` works over SSH.
@@ -48,16 +48,16 @@ All commands below assume you've SSH'd into the instance, or prefix with `ssh -i
 
 ```bash
 # Check if the service is running
-sudo systemctl status polymarket-dj
+sudo systemctl status data-as-music
 
 # Tail live logs
-sudo journalctl -u polymarket-dj -f
+sudo journalctl -u data-as-music -f
 
 # Restart after config or code changes
-sudo systemctl restart polymarket-dj
+sudo systemctl restart data-as-music
 
 # Reload Nginx after changing nginx.conf
-sudo cp /opt/polymarket_dj/deploy/nginx.conf /etc/nginx/sites-available/polymarket-dj
+sudo cp /opt/data_as_music/deploy/nginx.conf /etc/nginx/sites-available/data-as-music
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
@@ -72,6 +72,6 @@ After setup:
 
 ## Notes
 
-- The Lightsail instance is in `us-east-1`, which avoids the Polymarket geo-block (no VPN needed server-side)
-- Local development from UAE requires a VPN for Polymarket API access
+- The Lightsail instance is in `us-east-1`, which avoids the prediction market's geo-block (no VPN needed server-side)
+- Local development from UAE requires a VPN for prediction market API access
 - Static files get a 1h cache via Nginx (`Cache-Control: public, immutable`), so CloudFlare may serve stale versions briefly after deploy — purge the CloudFlare cache if needed for immediate updates

@@ -1,15 +1,15 @@
 ---
 name: strudel
-description: Write data-driven music tracks for Polymarket DJ using Strudel. Use when creating, modifying, or debugging tracks that sonify live prediction market data into music.
+description: Write data-driven music tracks for Data as Music (dam.fm) using Strudel. Use when creating, modifying, or debugging tracks that sonify live prediction market data into music.
 argument-hint: genre, mood, or modification request
 allowed-tools: Bash, Read, Edit, Write, Glob, Grep
 ---
 
-# Strudel — Polymarket DJ Track Author
+# Strudel — Data as Music Track Author
 
 ## Overview
 
-Strudel is a browser-based live-coding music environment (JavaScript port of TidalCycles). The Polymarket DJ platform uses Strudel to sonify live prediction market data — turning price movements, trading activity, and market sentiment into music.
+Strudel is a browser-based live-coding music environment (JavaScript port of TidalCycles). Data as Music (dam.fm) uses Strudel to sonify live prediction market data — turning price movements, trading activity, and market sentiment into music.
 
 **Your job**: Write JavaScript track files that receive market data every 3 seconds and return Strudel code strings. The platform handles audio rendering, data delivery, and cycle-boundary alignment. Music is never interrupted mid-bar.
 

@@ -4,10 +4,10 @@ import websockets
 from config import CLOB_WS
 
 
-class PolymarketFeed:
+class MarketFeed:
     """
-    Manages a single persistent WebSocket connection to Polymarket's
-    CLOB market channel. Dispatches events to registered handlers.
+    Manages a single persistent WebSocket connection to the prediction
+    market CLOB channel. Dispatches events to registered handlers.
     """
 
     def __init__(self, scorer, on_resolution=None):
@@ -21,7 +21,7 @@ class PolymarketFeed:
             try:
                 async with websockets.connect(CLOB_WS, ping_interval=10) as ws:
                     self._ws = ws
-                    print("[WS] Connected to Polymarket feed")
+                    print("[WS] Connected to market feed")
 
                     # Re-subscribe after reconnect
                     if self.subscribed:

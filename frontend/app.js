@@ -1,4 +1,4 @@
-// ── The Polymarket DJ — Main UI Logic ──────────────────────
+// ── Data as Music — Main UI Logic ──────────────────────
 // Handles browse tabs, market selection, sliders, and UI updates.
 // Depends on: ws-client.js (wsClient), audio-engine.js (audioEngine)
 
@@ -451,5 +451,5 @@ function onWsError(msg) {
 }
 
 // ── Init ──
-log('Ready. Pick a market to play, or paste a Polymarket URL.');
+log('Ready. Pick a market to play, or paste a market URL.');
 wsClient.connect();

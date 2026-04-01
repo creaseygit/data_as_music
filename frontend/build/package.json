@@ -1,8 +1,8 @@
 {
-  "name": "polymarket-dj-strudel-bundle",
+  "name": "dam-strudel-bundle",
   "version": "1.0.0",
   "private": true,
-  "description": "Custom Strudel bundle with soundfonts for Polymarket DJ",
+  "description": "Custom Strudel bundle with soundfonts for Data as Music",
   "scripts": {
     "build": "node esbuild.config.mjs"
   },

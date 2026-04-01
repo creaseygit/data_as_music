@@ -49,4 +49,4 @@ frontend/strudel-bundle.js.map
 .claude/*
 !.claude/skills/
 .claude/skills/*
-!.claude/skills/polymarket-strudel
+!.claude/skills/dam-strudel

@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>The Polymarket DJ</title>
+<title>Data as Music — dam.fm</title>
 <link rel="stylesheet" href="/static/style.css">
 <script src="/static/strudel-bundle.js"></script>
 </head>
 <body>
 <div class="container">
-  <h1>THE POLYMARKET DJ</h1>
-  <div class="subtitle">Listen to the market move.</div>
+  <h1>DATA AS MUSIC</h1>
+  <div class="subtitle">The Polymarket DJ — Listen to the market move.</div>
 
   <!-- Audio Engine -->
   <div class="panel">
@@ -51,7 +51,7 @@
   <div class="now-playing" id="np" style="display:none">
     <div class="np-header">
       <div class="np-question" id="np-question"></div>
-      <a class="np-link" id="np-link" href="#" target="_blank" rel="noopener">View on Polymarket &#x2197;</a>
+      <a class="np-link" id="np-link" href="#" target="_blank" rel="noopener">View Market &#x2197;</a>
     </div>
     <div class="np-mood" id="np-mood"></div>
     <div class="data-grid" id="np-data"></div>
@@ -72,7 +72,7 @@
       <button class="refresh-btn" id="browse-refresh-btn" onclick="refreshBrowse()" title="Refresh markets">&#x21bb;</button>
     </div>
     <div class="url-row">
-      <input type="text" id="url-input" placeholder="Paste Polymarket URL to play..." onkeydown="if(event.key==='Enter')playUrl()">
+      <input type="text" id="url-input" placeholder="Paste market URL to play..." onkeydown="if(event.key==='Enter')playUrl()">
       <button onclick="playUrl()">Play URL</button>
     </div>
     <div class="url-status" id="url-status"></div>
@@ -86,7 +86,7 @@
   <div id="log"></div>
 
   <div class="donate-footer">
-    The Polymarket DJ — <a href="https://github.com/creaseygit/polymarket_dj" target="_blank" rel="noopener" style="color:#555;">Source Code</a> (AGPL-3.0)
+    Data as Music — <a href="https://github.com/creaseygit/data_as_music" target="_blank" rel="noopener" style="color:#555;">Source Code</a> (AGPL-3.0)
   </div>
 </div>
 

@@ -5,7 +5,7 @@
 The UI has four sections:
 
 1. **Audio** — Single Play/Stop toggle (hidden until a market is selected; auto-starts on market pick), track selector, volume slider (client-side), sensitivity slider (server-side), connection status
-2. **Now Playing** — Current market question, bullish/bearish + price %, raw data values (heat, velocity, trade rate, spread), link to Polymarket
+2. **Now Playing** — Current market question, bullish/bearish + price %, raw data values (heat, velocity, trade rate, spread), link to market
 3. **Connection** — WebSocket connection status (auto-reconnects)
 4. **Data Source** — URL paste input, Browse tabs (Trending, Crypto Live, Politics, Sports, Crypto, Finance, Culture, Geopolitics, Tech, Closing Soon)
 
@@ -17,7 +17,7 @@ Each browser client gets an independent session:
 - Own track choice and volume (volume is client-side only)
 - Own event detection state (tone hysteresis, spike/price_move thresholds)
 
-The server maintains shared Polymarket WebSocket subscriptions via reference counting in `SessionManager`. If 50 users watch BTC, only 1 Polymarket subscription exists.
+The server maintains shared market WebSocket subscriptions via reference counting in `SessionManager`. If 50 users watch BTC, only 1 market subscription exists.
 
 ## WebSocket Protocol (`/ws`)
 
@@ -36,7 +36,7 @@ The server maintains shared Polymarket WebSocket subscriptions via reference cou
 | action | params | purpose |
 |--------|--------|---------|
 | `pin` | `{slug}` | Pin a market |
-| `play_url` | `{url}` | Play from Polymarket URL |
+| `play_url` | `{url}` | Play from market URL |
 | `unpin` | — | Clear pinned market |
 | `sensitivity` | `{value: 0.0-1.0}` | Set sensitivity |
 | `track` | `{name}` | Set track name |
@@ -85,7 +85,7 @@ Each tab fetches 10 markets from the Gamma API filtered by `tag_id` (defined in 
 | `broadcast_loop`               | 3s        | Per-client: compute sensitivity-adjusted data, detect events, push via WebSocket |
 | `price_poll_loop`              | 5s        | Fetch API prices for all watched markets (fallback, uses `asyncio.to_thread`)    |
 | `dj_loop` / `_refresh_markets` | 30s       | Re-fetch top 50 markets, update scorer volumes, seed prices, check live rotation |
-| Polymarket WebSocket feed      | Real-time | Price changes, trades, book updates → scorer                                     |
+| Market WebSocket feed          | Real-time | Price changes, trades, book updates → scorer                                     |
 
 ## Deployment
 
@@ -94,15 +94,15 @@ Each tab fetches 10 markets from the Gamma API filtered by `tag_id` (defined in 
   - Rate limiting on `/api/` — 5 req/s per IP, burst 10 (`limit_req_zone`)
   - Security headers: `X-Content-Type-Options`, `X-Frame-Options`, `Content-Security-Policy`
 - **CloudFlare** for DNS, CDN (caches static assets), HTTPS (Full strict), WebSocket support
-- **systemd** service runs as dedicated `polymarket-dj` user
+- **systemd** service runs as dedicated `data-as-music` user
 - Server sends WebSocket ping every 30s (CloudFlare has 100s idle timeout)
-- Config files in `deploy/`: `nginx.conf`, `polymarket-dj.service`, `setup.sh`
+- Config files in `deploy/`: `nginx.conf`, `data-as-music.service`, `setup.sh`
 
 ## Console Log Tags
 
 | Tag              | Meaning                                                               |
 | ---------------- | --------------------------------------------------------------------- |
-| `[FEED]`         | Polymarket WebSocket feed lifecycle                                   |
+| `[FEED]`         | Market WebSocket feed lifecycle                                       |
 | `[PRICE POLL]`   | Gamma API price poll every 5s                                         |
 | `[BROWSE]`       | Browse API errors (logged server-side, generic message sent to client) |
 | `[PLAY_URL]`     | Play-URL errors (logged server-side, generic message sent to client)   |

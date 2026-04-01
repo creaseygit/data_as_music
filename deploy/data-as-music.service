@@ -1,0 +1,14 @@
+[Unit]
+Description=Data as Music (dam.fm)
+After=network.target
+
+[Service]
+User=data-as-music
+WorkingDirectory=/opt/data_as_music
+ExecStart=/opt/data_as_music/venv/bin/python server.py
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

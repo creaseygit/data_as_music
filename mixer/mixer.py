@@ -101,7 +101,7 @@ class AutonomousDJ:
 
     @staticmethod
     def _primary_asset(market: dict) -> str:
-        """Pick the asset_id for the primary outcome (Yes/Up), matching Polymarket's display."""
+        """Pick the asset_id for the primary outcome (Yes/Up)."""
         outcomes = market.get("outcomes", [])
         asset_ids = market.get("asset_ids", [])
         if outcomes and asset_ids and len(outcomes) == len(asset_ids):
@@ -171,7 +171,7 @@ class AutonomousDJ:
     async def _rotate_live_market(self):
         """Fetch next live finance markets and switch to matching pattern."""
         try:
-            from polymarket.gamma import fetch_live_finance_markets
+            from market.gamma import fetch_live_finance_markets
             print("[LIVE] Fetching live finance markets...", flush=True)
             live = fetch_live_finance_markets()
             print(f"[LIVE] Found {len(live)} live markets: {[m.get('event_slug','?') for m in live]}", flush=True)

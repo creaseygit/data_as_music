@@ -1,4 +1,4 @@
-// Strudel bundle entry point for Polymarket DJ
+// Strudel bundle entry point for Data as Music (dam.fm)
 // Imports from @strudel/web SOURCE (web.mjs, not the pre-built dist)
 // so that @strudel/core is shared with @strudel/soundfonts — no duplicate.
 

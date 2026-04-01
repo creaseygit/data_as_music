@@ -1,4 +1,4 @@
-# ── Polymarket ───────────────────────────────────────────
+# ── Market API ───────────────────────────────────────────
 GAMMA_API      = "https://gamma-api.polymarket.com"
 CLOB_WS        = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 
@@ -30,7 +30,7 @@ MAX_CLIENTS      = 200          # safety limit on concurrent WebSocket connectio
 DATA_PUSH_INTERVAL = 3.0        # seconds between market data pushes to clients
 
 # ── Browse categories ──────────────────────────────────
-# Polymarket tag_ids for the Browse tabs in the web UI
+# Tag IDs for the Browse tabs in the web UI
 BROWSE_CATEGORIES = [
     {"label": "Trending",     "tag_id": None,   "sort": "volume"},
     {"label": "Crypto Live",  "tag_id": "live"},

@@ -1,9 +1,9 @@
 """
-The Polymarket DJ — Web Server
+Data as Music (dam.fm) — Web Server
 
-Data-only server: connects to Polymarket, scores markets, and pushes
-normalized data to browser clients via WebSocket. Audio runs entirely
-in the browser via Strudel.
+Data-only server: connects to prediction market APIs, scores markets,
+and pushes normalized data to browser clients via WebSocket. Audio runs
+entirely in the browser via Strudel.
 
     python server.py
     # Open http://localhost:8888
@@ -23,8 +23,8 @@ if sys.platform == "win32":
 
 from aiohttp import web
 
-from polymarket.scorer import MarketScorer
-from polymarket.websocket import PolymarketFeed
+from market.scorer import MarketScorer
+from market.websocket import MarketFeed
 from mixer.mixer import AutonomousDJ
 from sessions import ClientSession, SessionManager
 from config import (
@@ -41,7 +41,7 @@ class AppState:
     def __init__(self):
         self.scorer = MarketScorer()
         self.dj: AutonomousDJ | None = None
-        self.feed: PolymarketFeed | None = None
+        self.feed: MarketFeed | None = None
         self.sessions = SessionManager()
 
         # Track metadata (read from frontend/tracks/)
@@ -138,8 +138,8 @@ def _get_api_price(market: dict, asset_id: str) -> float | None:
 # ── Background loops ──────────────────────────────────────
 
 async def feed_loop():
-    """Run the Polymarket WebSocket feed."""
-    print("[FEED] Starting Polymarket feed...", flush=True)
+    """Run the market WebSocket feed."""
+    print("[FEED] Starting market feed...", flush=True)
     try:
         await state.feed.connect()
     except asyncio.CancelledError:
@@ -159,7 +159,7 @@ async def dj_loop():
 async def price_poll_loop(interval=5.0):
     """Poll Gamma API for current market prices every 5s.
     Updates outcome_prices for all markets that clients are watching."""
-    import polymarket.gamma as gamma_module
+    import market.gamma as gamma_module
     print("[PRICE POLL] Loop started", flush=True)
     try:
         while True:
@@ -374,7 +374,7 @@ async def broadcast_loop(interval=None):
 
 async def _pin_market_for_session(session: ClientSession, slug: str):
     """Pin a market for a specific client session."""
-    import polymarket.gamma as gamma_module
+    import market.gamma as gamma_module
 
     # Unwatch previous market
     if session.asset_id:
@@ -428,15 +428,15 @@ async def _pin_market_for_session(session: ClientSession, slug: str):
 
 
 async def _play_url_for_session(session: ClientSession, url: str):
-    """Parse a Polymarket URL and pin the market for a session."""
-    import polymarket.gamma as gamma_module
+    """Parse a market URL and pin the market for a session."""
+    import market.gamma as gamma_module
 
     try:
         parsed = urlparse(url)
         path = parsed.path.rstrip("/")
         parts = [p for p in path.split("/") if p]
         if len(parts) < 2 or parts[0] != "event":
-            return {"error": "Invalid URL format. Expected: polymarket.com/event/..."}
+            return {"error": "Invalid URL format. Expected: .../event/slug"}
         event_slug = parts[1]
         market_slug = parts[2] if len(parts) >= 3 else None
     except Exception:
@@ -475,7 +475,7 @@ async def _play_url_for_session(session: ClientSession, url: str):
 
 async def _play_live_prefix(session: ClientSession, prefix: str):
     """Resolve a live finance prefix (e.g. 'btc-updown-15m') to the current market and pin it."""
-    import polymarket.gamma as gamma_module
+    import market.gamma as gamma_module
 
     try:
         live = await asyncio.to_thread(gamma_module.fetch_live_finance_markets)
@@ -505,7 +505,7 @@ async def _play_live_prefix(session: ClientSession, prefix: str):
 
 async def _rotate_session_to_next_live(session: ClientSession, reason: str = "expired"):
     """Rotate a client session from an expired live finance market to the next one."""
-    import polymarket.gamma as gamma_module
+    import market.gamma as gamma_module
 
     old_market = session.market
     old_slug = old_market.get("event_slug", "") if old_market else ""
@@ -780,7 +780,7 @@ async def handle_sandbox(request):
 
 async def handle_browse(request):
     """Browse markets by category."""
-    import polymarket.gamma as gamma_module
+    import market.gamma as gamma_module
     tag_id = request.query.get("tag_id")
     sort = request.query.get("sort", "volume")
     limit = min(int(request.query.get("limit", "10")), 50)
@@ -825,8 +825,8 @@ async def handle_categories(request):
 # ── App setup ─────────────────────────────────────────────
 
 async def on_startup(app):
-    """Start Polymarket feed and DJ on server boot."""
-    import polymarket.gamma as gamma_module
+    """Start market feed and DJ on server boot."""
+    import market.gamma as gamma_module
 
     state.dj = AutonomousDJ(state.scorer, None, gamma_module, on_event=_on_dj_event)
     state.dj.on_market_ended = _on_market_ended
@@ -835,13 +835,13 @@ async def on_startup(app):
         state.dj.on_market_resolved(msg)
         asyncio.ensure_future(_handle_resolution_for_sessions(msg))
 
-    state.feed = PolymarketFeed(state.scorer, on_resolution=_on_resolution)
+    state.feed = MarketFeed(state.scorer, on_resolution=_on_resolution)
     state.dj.feed = state.feed
 
     # Re-discover tracks
     state.tracks = state._find_tracks()
 
-    print("[SERVER] Starting Polymarket feed...", flush=True)
+    print("[SERVER] Starting market feed...", flush=True)
     state._feed_task = asyncio.create_task(feed_loop())
     state._dj_task = asyncio.create_task(dj_loop())
     state._push_task = asyncio.create_task(broadcast_loop())
@@ -885,7 +885,7 @@ def create_app():
 if __name__ == "__main__":
     print("""
     +==========================================+
-    |    THE POLYMARKET DJ — WEB SERVER        |
+    |    DATA AS MUSIC — WEB SERVER            |
     |    http://localhost:8888                  |
     +==========================================+
     """, flush=True)

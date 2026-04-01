@@ -3,7 +3,7 @@ Per-client session management for multi-user WebSocket connections.
 
 Each browser client gets a ClientSession with independent market selection,
 sensitivity, and event detection state. SessionManager coordinates shared
-Polymarket WebSocket subscriptions via reference counting.
+market WebSocket subscriptions via reference counting.
 """
 import uuid
 from collections import deque
@@ -71,7 +71,7 @@ class SessionManager:
 
     def watch_market(self, client_id: str, asset_id: str) -> bool:
         """Register a client as watching an asset. Returns True if this is
-        the first watcher (caller should subscribe to Polymarket feed)."""
+        the first watcher (caller should subscribe to market feed)."""
         first = asset_id not in self._market_watchers or len(self._market_watchers[asset_id]) == 0
         if asset_id not in self._market_watchers:
             self._market_watchers[asset_id] = set()
@@ -80,7 +80,7 @@ class SessionManager:
 
     def _unwatch(self, client_id: str, asset_id: str) -> bool:
         """Unregister a client. Returns True if no more watchers remain
-        (caller could unsubscribe from Polymarket feed)."""
+        (caller could unsubscribe from market feed)."""
         watchers = self._market_watchers.get(asset_id)
         if watchers:
             watchers.discard(client_id)

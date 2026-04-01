@@ -1,6 +1,6 @@
 # Live Finance Markets (Auto-Rotation)
 
-Polymarket has auto-generated rolling markets for BTC/ETH price movement with fixed time windows (5m, 15m, hourly). These rotate constantly — each window gets a new event with a timestamp-based or date-based slug.
+The prediction market has auto-generated rolling markets for BTC/ETH price movement with fixed time windows (5m, 15m, hourly). These rotate constantly — each window gets a new event with a timestamp-based or date-based slug.
 
 ## How It Works
 

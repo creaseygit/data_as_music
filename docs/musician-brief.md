@@ -1,4 +1,4 @@
-# The Polymarket DJ — Musician Brief
+# Data as Music — Musician Brief
 
 ## What You're Working With
 
