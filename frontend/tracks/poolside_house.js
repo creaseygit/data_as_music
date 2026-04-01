@@ -10,6 +10,22 @@ const poolsideHouse = (() => {
     category: "music",
     cpm: 29, // ~116 BPM — relaxed daytime house tempo
 
+    voices: {
+      kick:    { label: "Kick",    default: 1.0 },
+      chords:  { label: "Chords",  default: 1.0 },
+      bass:    { label: "Bass",    default: 1.0 },
+      perc:    { label: "Perc",    default: 1.0 },
+      melody:  { label: "Melody",  default: 1.0 },
+      counter: { label: "Counter", default: 1.0 },
+      pad:     { label: "Pad",     default: 1.0 },
+    },
+
+    gains: {},
+
+    getGain(voice) {
+      return this.gains[voice] ?? this.voices[voice]?.default ?? 1.0;
+    },
+
     init() {
       _cachedCode = null;
       _cachedKey = null;
@@ -30,7 +46,9 @@ const poolsideHouse = (() => {
       const intBand = rawIntensity < 0.33 ? 0 : rawIntensity < 0.66 ? 1 : 2;
 
       // --- 2. Cache check ---
-      const key = `${h}:${tone}:${intBand}:${volat}:${mom}:${price}`;
+      const gainKey = Object.keys(this.voices)
+        .map(v => this.getGain(v).toFixed(2)).join(':');
+      const key = `${h}:${tone}:${intBand}:${volat}:${mom}:${price}:${gainKey}`;
       if (_cachedCode && _cachedKey === key) return _cachedCode;
 
       // --- 3. Derived values ---
@@ -52,7 +70,7 @@ const poolsideHouse = (() => {
       // Active when heat > 0.3
       // ==============================
       if (h > 0.3) {
-        const kickGain = (0.35 * energy).toFixed(3);
+        const kickGain = (0.35 * energy * this.getGain('kick')).toFixed(3);
         code += `$: s("bd bd bd bd").gain(${kickGain}).lpf(100).orbit(4);\n`;
       } else {
         code += `$: silence;\n`;
@@ -66,7 +84,7 @@ const poolsideHouse = (() => {
         const chordsBullish = "<C^7 Am9 Dm9 G7>";
         const chordsBearish = "<Am7 Fm9 Dm7 E7>";
         const changes = tone === 1 ? chordsBullish : chordsBearish;
-        const epGain = (0.25 * energy).toFixed(3);
+        const epGain = (0.25 * energy * this.getGain('chords')).toFixed(3);
         code += `$: chord("${changes}").dict("ireal").voicing()`;
         code += `.struct("~ [~@2 x] ~ [~@2 x]")`;
         code += `.s("gm_epiano1").gain(${epGain})`;
@@ -84,7 +102,7 @@ const poolsideHouse = (() => {
       // Active when heat > 0.25
       // ==============================
       if (h > 0.25) {
-        const bassGain = (0.3 * energy).toFixed(3);
+        const bassGain = (0.3 * energy * this.getGain('bass')).toFixed(3);
         const bassLpf = Math.round(300 + h * 400);
         let bassPattern;
         if (tone === 1) {
@@ -108,8 +126,9 @@ const poolsideHouse = (() => {
       // Active when heat > 0.3 (with kick)
       // ==============================
       if (h > 0.3) {
-        const percGainLo = (0.1 * energy).toFixed(3);
-        const percGainHi = (0.25 * energy).toFixed(3);
+        const pGM = this.getGain('perc');
+        const percGainLo = (0.1 * energy * pGM).toFixed(3);
+        const percGainHi = (0.25 * energy * pGM).toFixed(3);
 
         if (intBand === 0) {
           // Minimal: humanized shaker with rotating accent
@@ -121,22 +140,22 @@ const poolsideHouse = (() => {
         } else if (intBand === 1) {
           // Humanized hats + claps on 2&4 + probabilistic open hat
           code += `$: s("hh*8").gain(perlin.range(${percGainLo}, ${percGainHi})).hpf(9000)`;
-          code += `.sometimes(x => x.gain(${(0.35 * energy).toFixed(3)}))`;
+          code += `.sometimes(x => x.gain(${(0.35 * energy * pGM).toFixed(3)}))`;
           code += `.iter(4)`;
           code += `.pan(0.6).orbit(4);\n`;
-          code += `$: s("~ cp ~ cp").gain(${(0.2 * energy).toFixed(3)}).room(${reverbWet}).pan(0.55).orbit(4);\n`;
-          code += `$: s("oh").struct("~ x ~ ~").degradeBy(0.3).gain(${(0.1 * energy).toFixed(3)}).hpf(7000).pan(0.65).orbit(4);\n`;
+          code += `$: s("~ cp ~ cp").gain(${(0.2 * energy * pGM).toFixed(3)}).room(${reverbWet}).pan(0.55).orbit(4);\n`;
+          code += `$: s("oh").struct("~ x ~ ~").degradeBy(0.3).gain(${(0.1 * energy * pGM).toFixed(3)}).hpf(7000).pan(0.65).orbit(4);\n`;
         } else {
           // Full groove: dense humanized hats, claps, euclidean rim
           code += `$: s("hh*16").gain(perlin.range(${percGainLo}, ${percGainHi})).hpf(9000)`;
-          code += `.sometimes(x => x.gain(${(0.35 * energy).toFixed(3)}))`;
+          code += `.sometimes(x => x.gain(${(0.35 * energy * pGM).toFixed(3)}))`;
           code += `.rarely(x => x.ply(2))`;
           code += `.every(4, x => x.struct("x(5,8)"))`;
           code += `.pan(0.6).orbit(4);\n`;
-          code += `$: s("~ cp ~ cp").gain(${(0.2 * energy).toFixed(3)})`;
+          code += `$: s("~ cp ~ cp").gain(${(0.2 * energy * pGM).toFixed(3)})`;
           code += `.every(7, x => x.ply(2))`;
           code += `.room(${reverbWet}).pan(0.55).orbit(4);\n`;
-          code += `$: s("rim").struct("x(3,8)").gain(${(0.12 * energy).toFixed(3)})`;
+          code += `$: s("rim").struct("x(3,8)").gain(${(0.12 * energy * pGM).toFixed(3)})`;
           code += `.iter(3)`;
           code += `.room(0.3).pan(0.7).orbit(4);\n`;
         }
@@ -152,7 +171,7 @@ const poolsideHouse = (() => {
       // ==============================
       const melodyActive = Math.abs(mom) > 0.2 || h > 0.5;
       if (melodyActive) {
-        const melodyGain = (0.18 * energy).toFixed(3);
+        const melodyGain = (0.18 * energy * this.getGain('melody')).toFixed(3);
         const scale = tone === 1 ? "C4:major" : "A4:minor";
 
         // Base pattern varies with intensity
@@ -183,7 +202,7 @@ const poolsideHouse = (() => {
       // Active when heat > 0.6 — adds depth at high activity
       // ==============================
       if (h > 0.6) {
-        const counterGain = (0.1 * energy).toFixed(3);
+        const counterGain = (0.1 * energy * this.getGain('counter')).toFixed(3);
         const scale = tone === 1 ? "C5:major" : "A5:minor";
         code += `$: note("[4|5] [6|7] [2|4] [0|2]").scale("${scale}")`;
         // Offset from main melody by half a beat, with its own iter cycle
@@ -203,7 +222,7 @@ const poolsideHouse = (() => {
       // Active when heat > 0.1
       // ==============================
       if (h > 0.1) {
-        const padGain = (0.15 * energy).toFixed(3);
+        const padGain = (0.15 * energy * this.getGain('pad')).toFixed(3);
         const padChanges = tone === 1
           ? "<[C3,E3,G3,B3] [A3,C4,E4,G4] [D3,F3,A3,C4] [G3,B3,D4,F4]>"
           : "<[A3,C4,E4,G4] [F3,A3,C4,E4] [D3,F3,A3,C4] [E3,G#3,B3,D4]>";

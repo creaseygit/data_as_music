@@ -762,6 +762,22 @@ async def handle_index(request):
     return web.Response(text="Frontend not found. Run from project root.", status=404)
 
 
+async def handle_master(request):
+    """Serve the mastering page."""
+    path = Path("frontend/master.html")
+    if path.exists():
+        return web.FileResponse(path)
+    return web.Response(text="Mastering page not found.", status=404)
+
+
+async def handle_sandbox(request):
+    """Serve the sandbox page."""
+    path = Path("frontend/sandbox.html")
+    if path.exists():
+        return web.FileResponse(path)
+    return web.Response(text="Sandbox page not found.", status=404)
+
+
 async def handle_browse(request):
     """Browse markets by category."""
     import polymarket.gamma as gamma_module
@@ -848,6 +864,8 @@ def create_app():
 
     # Main page
     app.router.add_get("/", handle_index)
+    app.router.add_get("/master", handle_master)
+    app.router.add_get("/sandbox", handle_sandbox)
 
     # WebSocket
     app.router.add_get("/ws", handle_ws)

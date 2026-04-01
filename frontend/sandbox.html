@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sandbox — The Polymarket DJ</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+.sandbox-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 700px) { .sandbox-layout { grid-template-columns: 1fr; } }
+.signal-row {
+  display: grid;
+  grid-template-columns: 90px 1fr 50px;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 0;
+}
+.signal-label { color: #888; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+.signal-val { color: #00aaff; font-size: 12px; text-align: right; }
+.preset-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.preset-grid button { font-size: 11px; padding: 6px 10px; }
+.sweep-grid { display: flex; flex-direction: column; gap: 6px; }
+.sweep-grid button { font-size: 11px; padding: 5px 10px; }
+.event-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.event-grid button { font-size: 11px; padding: 5px 8px; }
+.voice-row {
+  display: grid;
+  grid-template-columns: 100px auto 1fr 50px;
+  gap: 10px; align-items: center;
+  padding: 8px 12px; background: #0d0d15;
+  border: 1px solid #1a1a2e; border-radius: 6px;
+}
+.voice-row.muted { opacity: 0.35; }
+.voice-label { color: #ccc; font-size: 13px; white-space: nowrap; }
+.voice-btns { display: flex; gap: 4px; }
+.voice-btns button { padding: 3px 8px; font-size: 10px; min-width: 28px; border-radius: 3px; text-transform: uppercase; }
+.voice-btns button.solo-active { background: #ff9900; color: #0a0a0f; border-color: #ff9900; }
+.voice-btns button.mute-active { background: #ff4444; color: #0a0a0f; border-color: #ff4444; }
+.voice-val { color: #00aaff; font-size: 12px; text-align: right; }
+.tone-toggle { display: flex; gap: 6px; align-items: center; }
+.tone-toggle button { padding: 4px 12px; font-size: 11px; }
+.tone-toggle button.active { background: #00ff88; color: #0a0a0f; border-color: #00ff88; }
+.nav-links { display: flex; gap: 12px; margin-bottom: 16px; }
+.nav-links a { color: #00aaff; text-decoration: none; font-size: 12px; padding: 4px 10px; border: 1px solid #00aaff44; border-radius: 4px; }
+.nav-links a:hover { background: #00aaff22; }
+.master-volume-row {
+  display: grid; grid-template-columns: 100px 1fr 50px;
+  gap: 10px; align-items: center; padding: 10px 12px;
+  background: #081a0e; border: 1px solid #00ff8844; border-radius: 6px;
+}
+</style>
+<script src="/static/strudel-bundle.js"></script>
+</head>
+<body>
+<div class="container">
+  <h1>SANDBOX</h1>
+  <div class="subtitle">Simulate market data. Explore a track's full dynamic range.</div>
+  <div class="nav-links">
+    <a href="/">Main</a>
+    <a href="/master">Mastering</a>
+  </div>
+
+  <!-- Audio Control -->
+  <div class="panel">
+    <div class="panel-header"><h2>Audio</h2>
+      <div class="audio-status">
+        <span class="dot" id="audio-dot"></span>
+        <span id="audio-label">Stopped</span>
+      </div>
+    </div>
+    <div style="display:grid; grid-template-columns:auto 1fr; gap:12px; align-items:center;">
+      <button id="audio-toggle-btn" onclick="toggleAudio()">Play</button>
+      <div class="audio-track">
+        <label style="color:#555; font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Track</label>
+        <select id="track-select" onchange="onTrackChange()"></select>
+      </div>
+    </div>
+  </div>
+
+  <div class="sandbox-layout">
+    <!-- Left: Data Signals -->
+    <div>
+      <div class="panel">
+        <h2>Data Signals</h2>
+        <div id="signal-sliders"></div>
+        <div style="margin-top:10px;">
+          <div class="signal-label" style="margin-bottom:6px;">Tone</div>
+          <div class="tone-toggle">
+            <button id="tone-major" class="active" onclick="setTone(1)">Major (Bullish)</button>
+            <button id="tone-minor" onclick="setTone(0)">Minor (Bearish)</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Events -->
+      <div class="panel">
+        <h2>Fire Events</h2>
+        <div class="signal-row">
+          <span class="signal-label">Magnitude</span>
+          <input type="range" id="event-mag" min="0" max="100" value="50" oninput="document.getElementById('event-mag-val').textContent=(this.value/100).toFixed(2)">
+          <span class="signal-val" id="event-mag-val">0.50</span>
+        </div>
+        <div class="event-grid" style="margin-top:8px;">
+          <button onclick="fireEvent('spike')">Fire Spike</button>
+          <button onclick="fireEvent('price_move', 1)">Price Move +</button>
+          <button onclick="fireEvent('price_move', -1)">Price Move -</button>
+          <button onclick="fireEvent('resolved', 1)">Resolved Yes</button>
+          <button onclick="fireEvent('resolved', -1)">Resolved No</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Presets & Sweeps -->
+    <div>
+      <div class="panel">
+        <h2>Presets</h2>
+        <div class="preset-grid" id="preset-buttons"></div>
+      </div>
+      <div class="panel">
+        <h2>Sweeps</h2>
+        <div class="sweep-grid">
+          <button onclick="startSweep('heat', 0, 1, 10000)">Sweep heat 0 &rarr; 1 (10s)</button>
+          <button onclick="startSweep('price', 0, 1, 10000)">Sweep price 0 &rarr; 1 (10s)</button>
+          <button onclick="sweepAll(15000)">Sweep all 0 &rarr; 1 (15s)</button>
+          <button id="sweep-stop-btn" onclick="stopSweep()" style="display:none; border-color:#ff4444; color:#ff4444;">Stop Sweep</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Voice Sliders -->
+  <div class="panel">
+    <div class="panel-header"><h2>Voice Levels</h2></div>
+    <div class="master-volume-row" style="margin-bottom:12px;">
+      <span class="voice-label" style="color:#00ff88;">Master Volume</span>
+      <input type="range" id="master-volume" min="0" max="100" value="70" oninput="onMasterVolume(this.value)">
+      <span class="voice-val" id="master-volume-val" style="color:#00ff88;">0.70</span>
+    </div>
+    <div id="voices-container" style="display:flex; flex-direction:column; gap:8px;">
+      <div style="color:#555; font-size:12px;">Select a track to see voices.</div>
+    </div>
+    <div style="display:flex; gap:8px; margin-top:10px;">
+      <button onclick="resetVoices()">Reset Voices</button>
+      <button onclick="exportJSON()">Export JSON</button>
+      <button onclick="document.getElementById('import-file').click()">Import JSON</button>
+      <input type="file" id="import-file" accept=".json" style="display:none" onchange="importJSON(this)">
+    </div>
+  </div>
+
+  <div id="log"></div>
+  <div class="donate-footer"><a href="/">Back to main</a></div>
+</div>
+
+<script src="/static/audio-engine.js"></script>
+<script>
+// ── Sandbox Page Logic ──
+// No WebSocket — all data is simulated locally.
+
+let audioRunning = false;
+let currentTone = 1;
+const soloState = {};
+const muteState = {};
+let _sweepRaf = null;
+
+function log(msg) {
+  const el = document.getElementById('log');
+  const t = new Date().toLocaleTimeString();
+  const line = document.createElement('div');
+  line.textContent = '[' + t + '] ' + msg;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+
+// ── Signal definitions ──
+const SIGNALS = [
+  { id: 'heat',       label: 'Heat',       min: 0, max: 1, step: 0.01, default: 0.5 },
+  { id: 'price',      label: 'Price',      min: 0, max: 1, step: 0.01, default: 0.5 },
+  { id: 'price_move', label: 'Price Move',  min: -1, max: 1, step: 0.01, default: 0 },
+  { id: 'momentum',   label: 'Momentum',   min: -1, max: 1, step: 0.01, default: 0 },
+  { id: 'velocity',   label: 'Velocity',   min: 0, max: 1, step: 0.01, default: 0.2 },
+  { id: 'trade_rate', label: 'Trade Rate',  min: 0, max: 1, step: 0.01, default: 0.3 },
+  { id: 'spread',     label: 'Spread',     min: 0, max: 1, step: 0.01, default: 0.15 },
+  { id: 'volatility', label: 'Volatility', min: 0, max: 1, step: 0.01, default: 0.2 },
+  { id: 'sensitivity',label: 'Sensitivity', min: 0, max: 1, step: 0.01, default: 0.5 },
+];
+
+const PRESETS = {
+  'Bull Run':    { heat: 0.8, price: 0.85, price_move: 0.6, momentum: 0.8, velocity: 0.6, trade_rate: 0.7, spread: 0.1, volatility: 0.3, tone: 1 },
+  'Crash':       { heat: 0.9, price: 0.15, price_move: -0.8, momentum: -0.9, velocity: 0.8, trade_rate: 0.9, spread: 0.6, volatility: 0.8, tone: 0 },
+  'Dead Market': { heat: 0.05, price: 0.5, price_move: 0, momentum: 0, velocity: 0.05, trade_rate: 0.05, spread: 0.2, volatility: 0.1, tone: 1 },
+  'Chaos':       { heat: 0.7, price: 0.5, price_move: 0, momentum: 0, velocity: 0.5, trade_rate: 0.6, spread: 0.5, volatility: 0.95, tone: 0 },
+  'Breakout':    { heat: 0.85, price: 0.7, price_move: 0.7, momentum: 0.7, velocity: 0.7, trade_rate: 0.8, spread: 0.15, volatility: 0.6, tone: 1 },
+  'Calm Trend':  { heat: 0.3, price: 0.6, price_move: 0.2, momentum: 0.5, velocity: 0.2, trade_rate: 0.2, spread: 0.1, volatility: 0.1, tone: 1 },
+};
+
+// ── Track loading (server provides the list via /api/categories, but sandbox
+//    doesn't use WS. Fetch track list via a simple API call.) ──
+let _tracksLoaded = false;
+async function loadTracks() {
+  if (_tracksLoaded) return;
+  try {
+    const r = await fetch('/api/categories');
+    const categories = await r.json();
+    // We need track metadata — fetch from a status-like endpoint or just load all known track scripts.
+    // Since tracks are auto-discovered, fetch the status via a temporary WS or use a fallback.
+    // Simplest: make a quick WS connection just to get the track list.
+    return new Promise((resolve) => {
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(`${protocol}//${location.host}/ws`);
+      ws.onmessage = async (event) => {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'status' && msg.data.tracks) {
+          ws.close();
+          _tracksLoaded = true;
+          await Promise.all(msg.data.tracks.map(t => new Promise((res) => {
+            const s = document.createElement('script');
+            s.src = `/static/tracks/${t.name}.js`;
+            s.onload = res;
+            s.onerror = () => { console.warn('[Tracks] Failed:', t.name); res(); };
+            document.head.appendChild(s);
+          })));
+          // Populate dropdown
+          const sel = document.getElementById('track-select');
+          const groups = {};
+          msg.data.tracks.forEach(t => {
+            const cat = t.category || 'music';
+            if (!groups[cat]) groups[cat] = [];
+            groups[cat].push(t);
+          });
+          [['music', 'Music'], ['alert', 'Alerts'], ['diagnostic', 'Diagnostic']].forEach(([key, label]) => {
+            if (!groups[key]) return;
+            const og = document.createElement('optgroup');
+            og.label = label;
+            groups[key].forEach(t => og.appendChild(new Option(t.label, t.name)));
+            sel.add(og);
+          });
+          renderVoices();
+          resolve();
+        }
+      };
+      ws.onerror = () => { log('Could not connect to server for track list.'); resolve(); };
+      setTimeout(() => { ws.close(); resolve(); }, 5000);
+    });
+  } catch (e) { log('Failed to load tracks: ' + e.message); }
+}
+
+// ── Build UI ──
+function buildSignalSliders() {
+  const container = document.getElementById('signal-sliders');
+  container.innerHTML = SIGNALS.map(s => {
+    const pct = ((s.default - s.min) / (s.max - s.min)) * 100;
+    return `<div class="signal-row">
+      <span class="signal-label">${s.label}</span>
+      <input type="range" id="sig-${s.id}" min="${s.min * 100}" max="${s.max * 100}" value="${Math.round(s.default * 100)}"
+        step="${s.step * 100}" oninput="onSignalChange('${s.id}', this.value)">
+      <span class="signal-val" id="sigval-${s.id}">${s.default.toFixed(2)}</span>
+    </div>`;
+  }).join('');
+}
+
+function buildPresetButtons() {
+  const container = document.getElementById('preset-buttons');
+  container.innerHTML = Object.keys(PRESETS).map(name =>
+    `<button onclick="applyPreset('${name}')">${name}</button>`
+  ).join('');
+}
+
+// ── Signal changes → push to audio engine ──
+function getSyntheticData() {
+  const data = {};
+  SIGNALS.forEach(s => {
+    const el = document.getElementById('sig-' + s.id);
+    data[s.id] = el ? parseFloat(el.value) / 100 : s.default;
+  });
+  data.tone = currentTone;
+  return data;
+}
+
+function pushData() {
+  if (!audioRunning) return;
+  audioEngine.onMarketData(getSyntheticData());
+}
+
+function onSignalChange(id, rawVal) {
+  const val = parseFloat(rawVal) / 100;
+  document.getElementById('sigval-' + id).textContent = val.toFixed(2);
+  pushData();
+}
+
+function setTone(val) {
+  currentTone = val;
+  document.getElementById('tone-major').className = val === 1 ? 'active' : '';
+  document.getElementById('tone-minor').className = val === 0 ? 'active' : '';
+  pushData();
+}
+
+// ── Presets ──
+function applyPreset(name) {
+  const preset = PRESETS[name];
+  if (!preset) return;
+  SIGNALS.forEach(s => {
+    const val = preset[s.id] !== undefined ? preset[s.id] : s.default;
+    const el = document.getElementById('sig-' + s.id);
+    const valEl = document.getElementById('sigval-' + s.id);
+    if (el) el.value = Math.round(val * 100);
+    if (valEl) valEl.textContent = val.toFixed(2);
+  });
+  if (preset.tone !== undefined) setTone(preset.tone);
+  pushData();
+  log('Preset: ' + name);
+}
+
+// ── Sweeps ──
+function startSweep(signal, from, to, durationMs) {
+  stopSweep();
+  const startTime = performance.now();
+  const el = document.getElementById('sig-' + signal);
+  const valEl = document.getElementById('sigval-' + signal);
+  document.getElementById('sweep-stop-btn').style.display = '';
+
+  function tick() {
+    const t = Math.min(1, (performance.now() - startTime) / durationMs);
+    const val = from + (to - from) * t;
+    if (el) el.value = Math.round(val * 100);
+    if (valEl) valEl.textContent = val.toFixed(2);
+    pushData();
+    if (t < 1) {
+      _sweepRaf = requestAnimationFrame(tick);
+    } else {
+      _sweepRaf = null;
+      document.getElementById('sweep-stop-btn').style.display = 'none';
+      log('Sweep complete: ' + signal);
+    }
+  }
+  tick();
+}
+
+function sweepAll(durationMs) {
+  stopSweep();
+  const startTime = performance.now();
+  document.getElementById('sweep-stop-btn').style.display = '';
+
+  function tick() {
+    const t = Math.min(1, (performance.now() - startTime) / durationMs);
+    SIGNALS.forEach(s => {
+      const from = s.min;
+      const to = s.max;
+      const val = from + (to - from) * t;
+      const el = document.getElementById('sig-' + s.id);
+      const valEl = document.getElementById('sigval-' + s.id);
+      if (el) el.value = Math.round(val * 100);
+      if (valEl) valEl.textContent = val.toFixed(2);
+    });
+    pushData();
+    if (t < 1) {
+      _sweepRaf = requestAnimationFrame(tick);
+    } else {
+      _sweepRaf = null;
+      document.getElementById('sweep-stop-btn').style.display = 'none';
+      log('Sweep all complete');
+    }
+  }
+  tick();
+}
+
+function stopSweep() {
+  if (_sweepRaf) { cancelAnimationFrame(_sweepRaf); _sweepRaf = null; }
+  document.getElementById('sweep-stop-btn').style.display = 'none';
+}
+
+// ── Events ──
+function fireEvent(type, direction) {
+  if (!audioRunning) { log('Start audio first'); return; }
+  const mag = parseFloat(document.getElementById('event-mag').value) / 100;
+  const msg = { event: type, magnitude: mag };
+  if (type === 'price_move') msg.direction = direction;
+  if (type === 'resolved') msg.result = direction;
+  audioEngine.handleEvent(msg);
+  log('Event: ' + type + (direction ? ' (' + (direction > 0 ? '+' : '-') + ')' : '') + ' mag=' + mag.toFixed(2));
+}
+
+// ── Audio control ──
+async function startAudio() {
+  const btn = document.getElementById('audio-toggle-btn');
+  btn.textContent = 'Loading...'; btn.disabled = true;
+  try {
+    await loadTracks();
+    await audioEngine.init();
+    const track = document.getElementById('track-select').value;
+    await audioEngine.selectTrack(track);
+    audioRunning = true;
+    overrideGetGain();
+    pushData();
+    updateAudioUI();
+    renderVoices();
+    log('Audio started: ' + track);
+  } catch (e) { log('ERR: ' + e.message); }
+  btn.disabled = false;
+}
+
+function stopAudio() {
+  audioEngine.stop();
+  audioRunning = false;
+  updateAudioUI();
+}
+
+function toggleAudio() { if (audioRunning) stopAudio(); else startAudio(); }
+
+function onTrackChange() {
+  const track = document.getElementById('track-select').value;
+  if (audioRunning) {
+    audioEngine.selectTrack(track);
+    overrideGetGain();
+    pushData();
+  }
+  renderVoices();
+  updateAudioUI();
+}
+
+function updateAudioUI() {
+  const btn = document.getElementById('audio-toggle-btn');
+  const dot = document.getElementById('audio-dot');
+  dot.className = 'dot ' + (audioRunning ? 'dot-on' : 'dot-off');
+  btn.textContent = audioRunning ? 'Stop' : 'Play';
+  btn.className = audioRunning ? 'danger' : 'ready';
+  document.getElementById('audio-label').textContent = audioRunning
+    ? 'Playing: ' + document.getElementById('track-select').value : 'Stopped';
+}
+
+function onMasterVolume(rawVal) {
+  const v = parseInt(rawVal) / 100;
+  document.getElementById('master-volume-val').textContent = v.toFixed(2);
+  audioEngine.setVolume(v);
+}
+
+// ── Voice sliders (same as mastering page) ──
+function getTrack() {
+  const name = document.getElementById('track-select').value;
+  const reg = audioEngine.getTrackRegistry();
+  return reg[name] || null;
+}
+
+function renderVoices() {
+  const container = document.getElementById('voices-container');
+  const track = getTrack();
+  if (!track || !track.voices) {
+    container.innerHTML = '<div style="color:#555; font-size:12px;">This track has no voice controls.</div>';
+    return;
+  }
+  Object.keys(soloState).forEach(k => delete soloState[k]);
+  Object.keys(muteState).forEach(k => delete muteState[k]);
+
+  container.innerHTML = Object.entries(track.voices).map(([id, v]) => {
+    const val = track.gains[id] ?? v.default ?? 1.0;
+    return `<div class="voice-row" id="vr-${id}">
+      <span class="voice-label">${v.label}</span>
+      <div class="voice-btns">
+        <button id="solo-${id}" onclick="toggleSolo('${id}')">S</button>
+        <button id="mute-${id}" onclick="toggleMute('${id}')">M</button>
+      </div>
+      <input type="range" id="slider-${id}" min="0" max="200" value="${Math.round(val * 100)}"
+        step="1" oninput="onVoiceSlider('${id}', this.value)">
+      <span class="voice-val" id="val-${id}">${val.toFixed(2)}</span>
+    </div>`;
+  }).join('');
+}
+
+function onVoiceSlider(voiceId, rawVal) {
+  const track = getTrack();
+  if (!track) return;
+  const val = parseInt(rawVal) / 100;
+  track.gains[voiceId] = val;
+  document.getElementById('val-' + voiceId).textContent = val.toFixed(2);
+}
+
+function toggleSolo(id) { soloState[id] = !soloState[id]; updateSoloMuteUI(); }
+function toggleMute(id) { muteState[id] = !muteState[id]; updateSoloMuteUI(); }
+
+function updateSoloMuteUI() {
+  const track = getTrack();
+  if (!track || !track.voices) return;
+  const anySoloed = Object.values(soloState).some(v => v);
+  Object.keys(track.voices).forEach(id => {
+    const btn_s = document.getElementById('solo-' + id);
+    const btn_m = document.getElementById('mute-' + id);
+    const row = document.getElementById('vr-' + id);
+    if (btn_s) btn_s.className = soloState[id] ? 'solo-active' : '';
+    if (btn_m) btn_m.className = muteState[id] ? 'mute-active' : '';
+    const isMuted = muteState[id] || (anySoloed && !soloState[id]);
+    if (row) row.className = isMuted ? 'voice-row muted' : 'voice-row';
+  });
+}
+
+function overrideGetGain() {
+  const track = audioEngine.getCurrentTrack();
+  if (!track || !track.voices) return;
+  const anySoloed = () => Object.values(soloState).some(v => v);
+  track.getGain = function(voice) {
+    if (muteState[voice]) return 0;
+    if (anySoloed() && !soloState[voice]) return 0;
+    return this.gains[voice] ?? this.voices[voice]?.default ?? 1.0;
+  };
+}
+
+function resetVoices() {
+  const track = getTrack();
+  if (!track || !track.voices) return;
+  Object.entries(track.voices).forEach(([id, v]) => {
+    track.gains[id] = v.default ?? 1.0;
+    const slider = document.getElementById('slider-' + id);
+    const val = document.getElementById('val-' + id);
+    if (slider) slider.value = Math.round((v.default ?? 1.0) * 100);
+    if (val) val.textContent = (v.default ?? 1.0).toFixed(2);
+  });
+  Object.keys(soloState).forEach(k => delete soloState[k]);
+  Object.keys(muteState).forEach(k => delete muteState[k]);
+  updateSoloMuteUI();
+}
+
+// ── Export / Import (same as mastering) ──
+function exportJSON() {
+  const track = getTrack();
+  if (!track || !track.voices) return;
+  const voices = {};
+  Object.entries(track.voices).forEach(([id, v]) => {
+    voices[id] = track.gains[id] ?? v.default ?? 1.0;
+  });
+  const data = {
+    format: "dam.fm/mastering",
+    version: 1,
+    track: track.name,
+    timestamp: new Date().toISOString(),
+    voices,
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${track.name}-mastering.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  log('Exported mastering for ' + track.name);
+}
+
+function importJSON(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (data.format !== 'dam.fm/mastering') { log('Invalid format'); return; }
+      const track = getTrack();
+      if (!track) return;
+      if (data.track && data.track !== track.name) {
+        log('Warning: file is for "' + data.track + '", loaded track is "' + track.name + '"');
+      }
+      Object.entries(data.voices || {}).forEach(([id, val]) => {
+        if (!track.voices[id]) return;
+        track.gains[id] = val;
+        const slider = document.getElementById('slider-' + id);
+        const valEl = document.getElementById('val-' + id);
+        if (slider) slider.value = Math.round(val * 100);
+        if (valEl) valEl.textContent = val.toFixed(2);
+      });
+      log('Imported mastering from ' + file.name);
+    } catch (err) { log('Import error: ' + err.message); }
+  };
+  reader.readAsText(file);
+  input.value = '';
+}
+
+// ── Init ──
+buildSignalSliders();
+buildPresetButtons();
+loadTracks();
+log('Sandbox ready. Select a track and press Play. No live market needed — use sliders to simulate data.');
+</script>
+</body>
+</html>

@@ -260,9 +260,9 @@ const jazzTrioTrack = (() => {
 
   // ── Layer code generators ──
 
-  function bassCode(tone, intBand, energy, volatility) {
+  function bassCode(tone, intBand, energy, volatility, gainMul) {
     const notes = tone === 1 ? BULL_BASS[intBand] : BEAR_BASS[intBand];
-    const gains = scaleGains(BASS_GAINS, energy);
+    const gains = scaleGains(BASS_GAINS, energy * gainMul);
     // Volatility muddies the bass: high volatility → lower LPF (darker, uncertain)
     const lpf = Math.round(900 - volatility * 350); // 900 calm → 550 volatile
     return `
@@ -278,7 +278,7 @@ $: note(\`${notes}\`)
 `;
   }
 
-  function melodyCode(tone, intBand, melodyStrength, energy, volatility) {
+  function melodyCode(tone, intBand, melodyStrength, energy, volatility, gainMul) {
     const notes = tone === 1 ? BULL_MELODY[intBand] : BEAR_MELODY[intBand];
     const vel = (0.30 + melodyStrength * 0.30).toFixed(2);
     const velMax = (0.40 + melodyStrength * 0.20).toFixed(2);
@@ -289,6 +289,7 @@ $: note(\`${notes}\`)
   .s("piano")
   .clip(1)
   .velocity(rand.range(${vel}, ${velMax}))
+  .gain(${gainMul.toFixed(3)})
   .room(0.25)
   .roomsize(3)
   .delay(0.08)
@@ -298,10 +299,10 @@ $: note(\`${notes}\`)
 `;
   }
 
-  function rideCode(energy) {
+  function rideCode(energy, gainMul) {
     const gains = scaleGains(
       "0.25 [0.28 0.12] 0.3 [0.32 0.12]",
-      energy,
+      energy * gainMul,
     );
     return `
 $: s("rd [rd@2 rd] rd [rd@2 rd]")
@@ -310,10 +311,10 @@ $: s("rd [rd@2 rd] rd [rd@2 rd]")
 `;
   }
 
-  function hihatCode(intBand, energy) {
+  function hihatCode(intBand, energy, gainMul) {
     if (intBand === 0) {
       // Simple 2 & 4 only
-      const g = (0.25 * energy).toFixed(2);
+      const g = (0.25 * energy * gainMul).toFixed(2);
       return `
 $: s("[~ hh ~ hh]")
   .gain(${g})
@@ -333,7 +334,7 @@ $: s("[~ hh ~ hh]")
       [~ 0.28 ~ 0.24]
       [~ 0.30 [~ 0.34] 0.24]
     >`,
-      energy,
+      energy * gainMul,
     );
     return `
 $: s(\`<
@@ -352,7 +353,7 @@ $: s(\`<
 `;
   }
 
-  function compCode(intBand, energy, volatility) {
+  function compCode(intBand, energy, volatility, gainMul) {
     let struct, vel, velMax;
     if (intBand === 0) {
       // Very sparse: hits on only 2 of 8 bars
@@ -366,8 +367,8 @@ $: s(\`<
     [~ ~ ~ ~]
     [~ ~ ~ ~]
   >`;
-      vel = (0.15 * energy).toFixed(2);
-      velMax = (0.25 * energy).toFixed(2);
+      vel = (0.15 * energy * gainMul).toFixed(2);
+      velMax = (0.25 * energy * gainMul).toFixed(2);
     } else if (intBand === 1) {
       // Mid: syncopated on alternate bars
       struct = `<
@@ -380,8 +381,8 @@ $: s(\`<
     [[~@2 x] ~ ~ [~@2 x]]
     [~ ~ ~ ~]
   >`;
-      vel = (0.20 * energy).toFixed(2);
-      velMax = (0.35 * energy).toFixed(2);
+      vel = (0.20 * energy * gainMul).toFixed(2);
+      velMax = (0.35 * energy * gainMul).toFixed(2);
     } else {
       // High: dense every bar
       struct = `<
@@ -394,8 +395,8 @@ $: s(\`<
     [[~@2 x] ~ ~ [~@2 x]]
     [~ [~@2 x] ~ x]
   >`;
-      vel = (0.25 * energy).toFixed(2);
-      velMax = (0.45 * energy).toFixed(2);
+      vel = (0.25 * energy * gainMul).toFixed(2);
+      velMax = (0.45 * energy * gainMul).toFixed(2);
     }
     // Volatility wobbles the piano — slight speed variation (detuning)
     const spdLo = (1.0 - volatility * 0.03).toFixed(3); // 1.000 calm → 0.970 volatile
@@ -419,11 +420,11 @@ $: chord(changes)
 `;
   }
 
-  function ghostSnareCode(intBand, energy) {
+  function ghostSnareCode(intBand, energy, gainMul) {
     // Busier at high intensity (less dropout)
     const dropout = intBand >= 2 ? 0.25 : 0.50;
-    const gMin = (0.05 * energy).toFixed(2);
-    const gMax = (0.09 * energy).toFixed(2);
+    const gMin = (0.05 * energy * gainMul).toFixed(2);
+    const gMax = (0.09 * energy * gainMul).toFixed(2);
     return `
 $: s("[~@2 sd] ~ [~@2 sd] ~")
   .gain(rand.range(${gMin}, ${gMax}))
@@ -432,14 +433,14 @@ $: s("[~@2 sd] ~ [~@2 sd] ~")
 `;
   }
 
-  function crossStickCode() {
+  function crossStickCode(gainMul) {
     return `
-$: s("~ ~ ~ rim").degradeBy(0.5).gain(0.29).orbit(4);
+$: s("~ ~ ~ rim").degradeBy(0.5).gain(${(0.29 * gainMul).toFixed(3)}).orbit(4);
 `;
   }
 
-  function kickCode(energy) {
-    const g = (0.18 * energy).toFixed(2);
+  function kickCode(energy, gainMul) {
+    const g = (0.18 * energy * gainMul).toFixed(2);
     return `
 $: s(\`<
   [bd ~ ~ ~]
@@ -456,9 +457,9 @@ $: s(\`<
 `;
   }
 
-  function fillCode() {
+  function fillCode(gainMul) {
     return `
-$: s("<~ ~ ~ ~ ~ ~ ~ [~ ~ [sd ~] [~ ~ sd]]>").gain(0.22).room(0.15).orbit(4);
+$: s("<~ ~ ~ ~ ~ ~ ~ [~ ~ [sd ~] [~ ~ sd]]>").gain(${(0.22 * gainMul).toFixed(3)}).room(0.15).orbit(4);
 `;
   }
 
@@ -469,6 +470,24 @@ $: s("<~ ~ ~ ~ ~ ~ ~ [~ ~ [sd ~] [~ ~ sd]]>").gain(0.22).room(0.15).orbit(4);
     label: "Late Night in Bb",
     category: "music",
     cpm: 30,
+
+    voices: {
+      bass:       { label: "Bass",        default: 1.0 },
+      melody:     { label: "Melody",      default: 1.0 },
+      ride:       { label: "Ride",        default: 1.0 },
+      hihat:      { label: "Hi-hat",      default: 1.0 },
+      comp:       { label: "Comping",     default: 1.0 },
+      ghostSnare: { label: "Ghost Snare", default: 1.0 },
+      crossStick: { label: "Cross-stick", default: 1.0 },
+      kick:       { label: "Kick",        default: 1.0 },
+      fill:       { label: "Fill",        default: 1.0 },
+    },
+
+    gains: {},
+
+    getGain(voice) {
+      return this.gains[voice] ?? this.voices[voice]?.default ?? 1.0;
+    },
 
     init() {
       _cachedCode = null;
@@ -496,7 +515,9 @@ $: s("<~ ~ ~ ~ ~ ~ ~ [~ ~ [sd ~] [~ ~ sd]]>").gain(0.22).room(0.15).orbit(4);
       const intBand = intensity < 0.33 ? 0 : intensity < 0.66 ? 1 : 2;
       const pmDir = pmAbs < 0.05 ? 0 : pm > 0 ? 1 : -1;
       const pmMag = q(pmAbs, 0.1);
-      const key = `${tone}:${intBand}:${hQ}:${pmDir}:${pmMag}:${volQ}:${momQ}`;
+      const gainKey = Object.keys(this.voices)
+        .map(v => this.getGain(v).toFixed(2)).join(':');
+      const key = `${tone}:${intBand}:${hQ}:${pmDir}:${pmMag}:${volQ}:${momQ}:${gainKey}`;
 
       if (_cachedCode && _cachedKey === key) return _cachedCode;
 
@@ -508,14 +529,14 @@ $: s("<~ ~ ~ ~ ~ ~ ~ [~ ~ [sd ~] [~ ~ sd]]>").gain(0.22).room(0.15).orbit(4);
       code += `let changes = "${changes}";\n`;
 
       // ── Always on: bass + ride ──
-      code += bassCode(tone, intBand, energy, volQ);
-      code += rideCode(energy);
+      code += bassCode(tone, intBand, energy, volQ, this.getGain('bass'));
+      code += rideCode(energy, this.getGain('ride'));
 
       // ── Hi-hat: scales with intensity ──
-      code += hihatCode(intBand, energy);
+      code += hihatCode(intBand, energy, this.getGain('hihat'));
 
       // ── Comping: always on, density scales with intensity ──
-      code += compCode(intBand, energy, volQ);
+      code += compCode(intBand, energy, volQ, this.getGain('comp'));
 
       // ── Conditional layers: always emit $: blocks to keep positional
       //    IDs stable (silent placeholder when inactive).  This prevents
@@ -523,16 +544,16 @@ $: s("<~ ~ ~ ~ ~ ~ ~ [~ ~ [sd ~] [~ ~ sd]]>").gain(0.22).room(0.15).orbit(4);
       //    appear/disappear, which would cause pattern mismatches mid-cycle.
 
       // Ghost snare: mid+ intensity
-      code += intBand >= 1 ? ghostSnareCode(intBand, energy) : '\n$: silence;\n';
+      code += intBand >= 1 ? ghostSnareCode(intBand, energy, this.getGain('ghostSnare')) : '\n$: silence;\n';
 
       // Cross-stick: mid+ intensity
-      code += intBand >= 1 ? crossStickCode() : '\n$: silence;\n';
+      code += intBand >= 1 ? crossStickCode(this.getGain('crossStick')) : '\n$: silence;\n';
 
       // Kick bombs: high intensity only
-      code += intBand >= 2 ? kickCode(energy) : '\n$: silence;\n';
+      code += intBand >= 2 ? kickCode(energy, this.getGain('kick')) : '\n$: silence;\n';
 
       // Turnaround fill: high intensity only
-      code += intBand >= 2 ? fillCode() : '\n$: silence;\n';
+      code += intBand >= 2 ? fillCode(this.getGain('fill')) : '\n$: silence;\n';
 
       // Melody: plays during active price movement OR sustained momentum.
       // Momentum keeps the melody alive during trends even when the
@@ -540,7 +561,7 @@ $: s("<~ ~ ~ ~ ~ ~ ~ [~ ~ [sd ~] [~ ~ sd]]>").gain(0.22).room(0.15).orbit(4);
       // melodyStrength combines both: whichever is stronger wins.
       const melodyStrength = Math.max(pmAbs, momAbs * 0.7);
       code += melodyStrength > 0.05
-        ? melodyCode(tone, intBand, melodyStrength, energy, volQ)
+        ? melodyCode(tone, intBand, melodyStrength, energy, volQ, this.getGain('melody'))
         : '\n$: silence;\n';
 
       _cachedCode = code;

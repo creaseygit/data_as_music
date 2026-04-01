@@ -344,9 +344,17 @@ const audioEngine = (() => {
     trackRegistry[name] = trackDef;
   }
 
+  function getTrackRegistry() { return trackRegistry; }
+  function getCurrentTrack() { return currentTrackDef; }
+  function getCurrentTrackName() { return currentTrackName; }
+  function getLatestData() { return { ...latestData }; }
+  function isPlaying() { return playing; }
+
   return {
     init, selectTrack, stop, setVolume, onMarketData,
     handleEvent, registerTrack,
+    getTrackRegistry, getCurrentTrack, getCurrentTrackName,
+    getLatestData, isPlaying,
   };
 })();
 
