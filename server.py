@@ -12,7 +12,7 @@ import asyncio
 import json
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -553,6 +553,40 @@ async def _rotate_session_to_next_live(session: ClientSession, reason: str = "ex
         print(f"[LIVE:{session.client_id}] Rotation failed: {e}", flush=True)
 
 
+def _infer_end_time(event_slug: str):
+    """Infer end time from a live finance event slug when end_date is missing.
+    Returns a datetime (UTC) or None."""
+    # Timestamp-based: btc-updown-15m-1774385100 → timestamp + interval
+    m = re.match(r"^(?:btc|eth)-updown-(\d+)m-(\d+)$", event_slug)
+    if m:
+        interval_min, ts = int(m.group(1)), int(m.group(2))
+        return datetime.fromtimestamp(ts + interval_min * 60, tz=timezone.utc)
+    # Hourly: bitcoin-up-or-down-march-25-2026-3pm-et → next hour boundary
+    m = re.match(r"^bitcoin-up-or-down-(\w+)-(\d+)-(\d+)-(\d+)(am|pm)-et$", event_slug)
+    if m:
+        import calendar
+        month_name, day, year, hour, ampm = m.group(1), int(m.group(2)), int(m.group(3)), int(m.group(4)), m.group(5)
+        # Convert 12-hour to 24-hour
+        if ampm == "am" and hour == 12:
+            hour = 0
+        elif ampm == "pm" and hour != 12:
+            hour += 12
+        # Parse month name
+        month_names = {v.lower(): k for k, v in enumerate(calendar.month_name) if k}
+        month_num = month_names.get(month_name, 1)
+        # Determine ET offset (EDT=-4 Mar-Nov, EST=-5 Nov-Mar) same as gamma._now_et
+        utc_now = datetime.now(timezone.utc)
+        mar1 = datetime(utc_now.year, 3, 1, tzinfo=timezone.utc)
+        dst_start = mar1 + timedelta(days=(6 - mar1.weekday()) % 7 + 7, hours=7)
+        nov1 = datetime(utc_now.year, 11, 1, tzinfo=timezone.utc)
+        dst_end = nov1 + timedelta(days=(6 - nov1.weekday()) % 7, hours=6)
+        et_offset_hours = 4 if dst_start <= utc_now < dst_end else 5
+        # Slug hour is in ET; convert to UTC and add 1 hour for end time
+        end_utc = datetime(year, month_num, day, hour, 0, 0, tzinfo=timezone.utc) + timedelta(hours=et_offset_hours + 1)
+        return end_utc
+    return None
+
+
 async def _check_live_rotations():
     """Check all sessions for expired live finance markets and rotate them."""
     for session in state.sessions.all_sessions():
@@ -562,19 +596,28 @@ async def _check_live_rotations():
         if not AutonomousDJ._is_live_finance(market):
             continue
         end_str = market.get("end_date")
-        if not end_str:
-            continue
-        try:
-            end_dt = datetime.fromisoformat(end_str.replace("Z", "+00:00"))
-            now_utc = datetime.now(timezone.utc)
-            remaining = (end_dt - now_utc).total_seconds()
-            if remaining > 0:
-                if remaining < 120:
-                    mins, secs = int(remaining // 60), int(remaining % 60)
-                    slug = market.get("event_slug", "?")
-                    print(f"[LIVE:{session.client_id}] {slug} ends in {mins}m{secs}s", flush=True)
+        end_dt = None
+        if end_str:
+            try:
+                end_dt = datetime.fromisoformat(end_str.replace("Z", "+00:00"))
+            except (ValueError, TypeError):
+                pass
+        # If end_date missing or unparseable, infer from slug pattern
+        if not end_dt:
+            event_slug = market.get("event_slug", "")
+            end_dt = _infer_end_time(event_slug)
+            if end_dt:
+                print(f"[LIVE:{session.client_id}] Inferred end_time from slug: {event_slug} → {end_dt.isoformat()}", flush=True)
+            else:
+                print(f"[LIVE:{session.client_id}] No end_date and can't infer from slug: {event_slug}", flush=True)
                 continue
-        except (ValueError, TypeError):
+        now_utc = datetime.now(timezone.utc)
+        remaining = (end_dt - now_utc).total_seconds()
+        if remaining > 0:
+            if remaining < 120:
+                mins, secs = int(remaining // 60), int(remaining % 60)
+                slug = market.get("event_slug", "?")
+                print(f"[LIVE:{session.client_id}] {slug} ends in {mins}m{secs}s", flush=True)
             continue
 
         await _rotate_session_to_next_live(session, "expired")

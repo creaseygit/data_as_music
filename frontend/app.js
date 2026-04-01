@@ -199,8 +199,13 @@ function playBrowseMarket(slug, question, eventSlug) {
   if (!audioRunning) {
     startAudio();
   }
-  const url = 'https://polymarket.com/event/' + (eventSlug || slug);
-  wsClient.send({ action: 'play_url', url });
+  // For live finance markets, use play_live so server fetches with proper event_slug for rotation
+  const lp = livePrefix(eventSlug);
+  if (lp) {
+    wsClient.send({ action: 'play_live', prefix: lp });
+  } else {
+    wsClient.send({ action: 'pin', slug: slug });
+  }
   log('Playing: ' + question);
 }
 
