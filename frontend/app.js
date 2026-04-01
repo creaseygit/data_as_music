@@ -335,7 +335,7 @@ async function onWsStatus(data) {
       if (!groups[cat]) groups[cat] = [];
       groups[cat].push(t);
     });
-    const order = [['music', 'Music'], ['alert', 'Alerts']];
+    const order = [['music', 'Music'], ['alert', 'Alerts'], ['diagnostic', 'Diagnostic']];
     order.forEach(([key, label]) => {
       if (!groups[key]) return;
       const og = document.createElement('optgroup');

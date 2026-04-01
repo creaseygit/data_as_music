@@ -19,7 +19,7 @@ class ClientSession:
         self.market_slug: str | None = None
         self.asset_id: str | None = None
         self.market: dict | None = None       # full market dict
-        self.track: str = "mezzanine"
+        self.track: str = "oracle"
         self.sensitivity: float = 0.5
 
         # Per-client event detection state (mirrors old AppState fields)
@@ -28,9 +28,14 @@ class ClientSession:
         self._prev_asset: str | None = None
         self._current_tone: int = 1           # 1=bullish, 0=bearish
 
-        # Rolling price buffer for price_move signal (~60s at 3s intervals)
-        self._price_history: deque[float] = deque(maxlen=20)
+        # Rolling price buffer — 160 entries = 8 min at 3s intervals.
+        # Supports sensitivity-scaled windows for momentum & volatility.
+        self._price_history: deque[float] = deque(maxlen=160)
         self._prev_price_move: float = 0.0
+
+        # Dual-EMA state for momentum (MACD-inspired)
+        self._ema_fast: float = 0.5
+        self._ema_slow: float = 0.5
 
     def reset_event_state(self):
         """Reset event baselines (e.g. after market switch)."""
@@ -40,6 +45,8 @@ class ClientSession:
         self._current_tone = 1
         self._price_history.clear()
         self._prev_price_move = 0.0
+        self._ema_fast = 0.5
+        self._ema_slow = 0.5
 
 
 class SessionManager:
@@ -85,10 +92,6 @@ class SessionManager:
     def unwatch_market(self, client_id: str, asset_id: str) -> bool:
         """Public unwatch. Returns True if no more watchers remain."""
         return self._unwatch(client_id, asset_id)
-
-    def clients_watching(self, asset_id: str) -> set[str]:
-        """Return set of client_ids watching a given asset."""
-        return self._market_watchers.get(asset_id, set()).copy()
 
     @property
     def active_count(self) -> int:

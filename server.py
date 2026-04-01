@@ -12,7 +12,6 @@ import asyncio
 import json
 import re
 import sys
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
@@ -111,6 +110,19 @@ def _apply_sensitivity(value: float, exponent: float) -> float:
     if value <= 0.0:
         return 0.0
     return max(0.0, min(1.0, value ** exponent))
+
+
+def _sensitivity_window(sensitivity: float) -> int:
+    """Map sensitivity 0–1 to window length in buffer entries (at 3s intervals).
+
+    sensitivity=1.0 → 15 entries  (45s)  — scalper: catches quick pumps
+    sensitivity=0.5 → ~49 entries (~2.5min) — day trader
+    sensitivity=0.0 → 160 entries (8min) — swing trader: only sustained trends
+
+    Exponential curve mirrors how short MA period differences matter more
+    than long ones (9-EMA vs 20-EMA is a bigger deal than 180 vs 200).
+    """
+    return max(4, int(160 * (15 / 160) ** sensitivity))
 
 
 def _get_api_price(market: dict, asset_id: str) -> float | None:
@@ -231,31 +243,53 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
         session._prev_price = last_price
         session._current_tone = 1 if last_price > 0.5 else 0
         session._price_history.clear()
+        session._ema_fast = last_price
+        session._ema_slow = last_price
 
     # Append to rolling price buffer (one entry per broadcast cycle)
     session._price_history.append(last_price)
 
-    # Event detection + price delta
-    price_delta_n = 0.0
+    # ── Sensitivity-scaled window (for momentum & volatility) ──
+    sens_window = _sensitivity_window(session.sensitivity)
+
+    # ── Momentum: dual-EMA signed trend (MACD-inspired) ──
+    # Fast EMA period = window/3, slow EMA period = window.
+    # Sensitivity controls window → high sens = short EMAs = reactive.
+    alpha_fast = 2.0 / (sens_window / 3 + 1)
+    alpha_slow = 2.0 / (sens_window + 1)
+    session._ema_fast += alpha_fast * (last_price - session._ema_fast)
+    session._ema_slow += alpha_slow * (last_price - session._ema_slow)
+    raw_momentum = session._ema_fast - session._ema_slow
+    # Normalize: ±0.05 divergence → ±1.0
+    momentum_n = max(-1.0, min(1.0, raw_momentum / 0.05))
+
+    # ── Volatility: stddev of price over sensitivity-scaled window ──
+    vol_entries = list(session._price_history)[-sens_window:]
+    if len(vol_entries) >= 2:
+        mean_p = sum(vol_entries) / len(vol_entries)
+        variance = sum((p - mean_p) ** 2 for p in vol_entries) / len(vol_entries)
+        stddev = variance ** 0.5
+        # Normalize: 0.03 stddev (3¢ oscillation) → 1.0
+        volatility_n = min(1.0, stddev / 0.03)
+    else:
+        volatility_n = 0.0
+
+    # ── Event detection (with magnitudes) ──
     if not is_rotation:
         heat_delta = abs(heat - session._prev_heat)
         raw_price_delta = last_price - session._prev_price
         abs_price_delta = abs(raw_price_delta)
         if heat_delta > EVENT_HEAT_THRESHOLD * sens_exp:
-            events.append({"event": "spike"})
+            spike_mag = min(1.0, heat_delta / (EVENT_HEAT_THRESHOLD * 3))
+            events.append({"event": "spike", "magnitude": round(spike_mag, 4)})
         if abs_price_delta > EVENT_PRICE_THRESHOLD * sens_exp:
             direction = 1 if raw_price_delta > 0 else -1
-            events.append({"event": "price_move", "direction": direction})
-        # Sensitivity-adjusted price delta (-1 to +1)
-        sign = 1.0 if raw_price_delta >= 0 else -1.0
-        mag = min(1.0, abs_price_delta / 0.10)
-        mag = _apply_sensitivity(mag, sens_exp)
-        price_delta_n = sign * mag
+            move_mag = min(1.0, abs_price_delta / (EVENT_PRICE_THRESHOLD * 3))
+            events.append({"event": "price_move", "direction": direction, "magnitude": round(move_mag, 4)})
     session._prev_heat = heat
     session._prev_price = last_price
 
-    # Rolling price move over PRICE_MOVE_WINDOW seconds
-    # Compare current price to price N entries ago (each entry = DATA_PUSH_INTERVAL)
+    # ── Rolling price move (edge-detected, fixed 30s window) ──
     # Compute on RAW magnitude so edge detection thresholds stay consistent
     # regardless of sensitivity. Sensitivity is applied after edge detection.
     price_move_raw = 0.0
@@ -291,11 +325,12 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
     data = {
         "heat": round(heat_n, 4),
         "price": round(price_n, 4),
-        "price_delta": round(price_delta_n, 4),
         "price_move": round(price_move_n, 4),
+        "momentum": round(momentum_n, 4),
         "velocity": round(velocity_n, 4),
         "trade_rate": round(trade_rate_n, 4),
         "spread": round(spread_n, 4),
+        "volatility": round(volatility_n, 4),
         "tone": tone,
         "sensitivity": round(session.sensitivity, 4),
     }

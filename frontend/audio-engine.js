@@ -282,36 +282,36 @@ const audioEngine = (() => {
     _scheduleBoundary();
   }
 
-  /** Process a single event (called at cycle boundary from _flushAtBoundary). */
+  /** Process a single event (called at cycle boundary from _flushAtBoundary).
+   *
+   * Unified: onEvent returns the appropriate type for the track's mode:
+   * - evaluate-mode tracks → return a code string (appended to base code)
+   * - pattern-mode tracks → return a Pattern object (stacked with base)
+   */
   function _processEvent(msg) {
-    if (!playing || !currentTrackDef || !currentTrackDef.onEvent) return;
+    if (!playing || !currentTrackDef?.onEvent) return;
 
-    const eventPat = currentTrackDef.onEvent(msg.event, msg, latestData);
-    if (eventPat) {
-      try {
-        if (currentTrackDef.evaluateCode) {
-          const baseCode = currentTrackDef.evaluateCode(latestData);
-          if (baseCode) {
-            const eventCode = currentTrackDef.onEventCode
-              ? currentTrackDef.onEventCode(msg.event, msg, latestData)
-              : null;
-            if (eventCode) {
-              evaluate(baseCode + '\n' + eventCode);
-            } else {
-              evaluate(baseCode);
-            }
-            _lastTrackPat = null;  // force fresh evaluate on next data push
-          }
-        } else if (currentTrackDef.pattern) {
-          const base = currentTrackDef.pattern(latestData);
-          if (base) {
-            stack(base, eventPat).gain(masterVolume).play();
-            _lastTrackPat = null;
-          }
+    const result = currentTrackDef.onEvent(msg.event, msg, latestData);
+    if (!result) return;
+
+    try {
+      if (currentTrackDef.evaluateCode) {
+        // result is a code string — append to base evaluate code
+        const baseCode = currentTrackDef.evaluateCode(latestData);
+        if (baseCode) {
+          evaluate(baseCode + '\n' + result);
+          _lastTrackPat = null;  // force fresh evaluate on next data push
         }
-      } catch (e) {
-        console.warn('[Audio] Event pattern error:', e);
+      } else if (currentTrackDef.pattern) {
+        // result is a Pattern — stack with base pattern
+        const base = currentTrackDef.pattern(latestData);
+        if (base) {
+          stack(base, result).gain(masterVolume).play();
+          _lastTrackPat = null;
+        }
       }
+    } catch (e) {
+      console.warn('[Audio] Event pattern error:', e);
     }
   }
 
@@ -331,11 +331,6 @@ const audioEngine = (() => {
 const SCALES = {
   major: [0, 2, 4, 5, 7, 9, 11],
   minor: [0, 2, 3, 5, 7, 8, 10],
-  major_pentatonic: [0, 2, 4, 7, 9],
-  minor_pentatonic: [0, 3, 5, 7, 10],
-  major7: [0, 4, 7, 11],
-  minor7: [0, 3, 7, 10],
-  m7minus5: [0, 3, 6, 10],
 };
 
 function midiToNote(midi) {
@@ -353,11 +348,6 @@ function noteToMidi(note) {
   };
   const key = match[1][0].toUpperCase() + match[1].slice(1);
   return (names[key] ?? 0) + (parseInt(match[2]) + 1) * 12;
-}
-
-/** Convert MIDI note number to Hz. */
-function midiToHz(midi) {
-  return 440 * Math.pow(2, (midi - 69) / 12);
 }
 
 function getScaleNotes(rootNote, scaleType, count, octaves) {

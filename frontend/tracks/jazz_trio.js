@@ -2,6 +2,8 @@
 // Two paradigms: bullish (Bb major, ascending) / bearish (G minor, descending).
 // Tone selects paradigm; trade_rate + velocity drive complexity.
 // Heat controls overall energy (volume scaling).
+// Momentum sustains melody during trends (not just edge-detected moves).
+// Volatility drives piano detuning, delay feedback, bass LPF (uncertainty = muddier).
 // category: 'music', label: 'Late Night in Bb'
 
 const jazzTrioTrack = (() => {
@@ -258,15 +260,17 @@ const jazzTrioTrack = (() => {
 
   // ── Layer code generators ──
 
-  function bassCode(tone, intBand, energy) {
+  function bassCode(tone, intBand, energy, volatility) {
     const notes = tone === 1 ? BULL_BASS[intBand] : BEAR_BASS[intBand];
     const gains = scaleGains(BASS_GAINS, energy);
+    // Volatility muddies the bass: high volatility → lower LPF (darker, uncertain)
+    const lpf = Math.round(900 - volatility * 350); // 900 calm → 550 volatile
     return `
 $: note(\`${notes}\`)
   .s("gm_acoustic_bass")
   .clip(1)
   .gain(\`${gains}\`)
-  .lpf(900)
+  .lpf(${lpf})
   .hpf(60)
   .room(0.08)
   .speed(rand.range(0.98, 1.02))
@@ -274,10 +278,12 @@ $: note(\`${notes}\`)
 `;
   }
 
-  function melodyCode(tone, intBand, pmAbs, energy) {
+  function melodyCode(tone, intBand, melodyStrength, energy, volatility) {
     const notes = tone === 1 ? BULL_MELODY[intBand] : BEAR_MELODY[intBand];
-    const vel = (0.30 + pmAbs * 0.30).toFixed(2);
-    const velMax = (0.40 + pmAbs * 0.20).toFixed(2);
+    const vel = (0.30 + melodyStrength * 0.30).toFixed(2);
+    const velMax = (0.40 + melodyStrength * 0.20).toFixed(2);
+    // Volatility increases delay feedback (uncertain = more echo/wash)
+    const delayFb = (0.15 + volatility * 0.25).toFixed(2); // 0.15 calm → 0.40 volatile
     return `
 $: note(\`${notes}\`)
   .s("piano")
@@ -287,7 +293,7 @@ $: note(\`${notes}\`)
   .roomsize(3)
   .delay(0.08)
   .delaytime(0.18)
-  .delayfeedback(0.15)
+  .delayfeedback(${delayFb})
   .orbit(2);
 `;
   }
@@ -346,7 +352,7 @@ $: s(\`<
 `;
   }
 
-  function compCode(intBand, energy) {
+  function compCode(intBand, energy, volatility) {
     let struct, vel, velMax;
     if (intBand === 0) {
       // Very sparse: hits on only 2 of 8 bars
@@ -391,6 +397,10 @@ $: s(\`<
       vel = (0.25 * energy).toFixed(2);
       velMax = (0.45 * energy).toFixed(2);
     }
+    // Volatility wobbles the piano — slight speed variation (detuning)
+    const spdLo = (1.0 - volatility * 0.03).toFixed(3); // 1.000 calm → 0.970 volatile
+    const spdHi = (1.0 + volatility * 0.03).toFixed(3); // 1.000 calm → 1.030 volatile
+    const delayFb = (0.20 + volatility * 0.20).toFixed(2); // 0.20 calm → 0.40 volatile
     return `
 $: chord(changes)
   .dict("ireal")
@@ -399,11 +409,12 @@ $: chord(changes)
   .s("piano")
   .clip(1)
   .velocity(rand.range(${vel}, ${velMax}))
+  .speed(rand.range(${spdLo}, ${spdHi}))
   .room(0.25)
   .roomsize(3)
   .delay(0.12)
   .delaytime(0.18)
-  .delayfeedback(0.2)
+  .delayfeedback(${delayFb})
   .orbit(1);
 `;
   }
@@ -471,16 +482,21 @@ $: s("<~ ~ ~ ~ ~ ~ ~ [~ ~ [sd ~] [~ ~ sd]]>").gain(0.22).room(0.15).orbit(4);
       const tone = data.tone !== undefined ? data.tone : 1;
       const tradeRate = data.trade_rate || 0;
       const vel = data.velocity || 0;
+      const momentum = data.momentum || 0;
+      const momAbs = Math.abs(momentum);
+      const volatility = data.volatility || 0;
 
       // Quantize for cache stability
       const hQ = q(h, 0.05);
+      const volQ = q(volatility, 0.1);
+      const momQ = q(momAbs, 0.1);
       // Intensity from trading activity (separate from heat/energy)
       const rawIntensity = 0.6 * tradeRate + 0.4 * vel;
       const intensity = Math.max(0.15, Math.min(1.0, rawIntensity));
       const intBand = intensity < 0.33 ? 0 : intensity < 0.66 ? 1 : 2;
       const pmDir = pmAbs < 0.05 ? 0 : pm > 0 ? 1 : -1;
       const pmMag = q(pmAbs, 0.1);
-      const key = `${tone}:${intBand}:${hQ}:${pmDir}:${pmMag}`;
+      const key = `${tone}:${intBand}:${hQ}:${pmDir}:${pmMag}:${volQ}:${momQ}`;
 
       if (_cachedCode && _cachedKey === key) return _cachedCode;
 
@@ -492,14 +508,14 @@ $: s("<~ ~ ~ ~ ~ ~ ~ [~ ~ [sd ~] [~ ~ sd]]>").gain(0.22).room(0.15).orbit(4);
       code += `let changes = "${changes}";\n`;
 
       // ── Always on: bass + ride ──
-      code += bassCode(tone, intBand, energy);
+      code += bassCode(tone, intBand, energy, volQ);
       code += rideCode(energy);
 
       // ── Hi-hat: scales with intensity ──
       code += hihatCode(intBand, energy);
 
       // ── Comping: always on, density scales with intensity ──
-      code += compCode(intBand, energy);
+      code += compCode(intBand, energy, volQ);
 
       // ── Conditional layers: always emit $: blocks to keep positional
       //    IDs stable (silent placeholder when inactive).  This prevents
@@ -518,26 +534,28 @@ $: s("<~ ~ ~ ~ ~ ~ ~ [~ ~ [sd ~] [~ ~ sd]]>").gain(0.22).room(0.15).orbit(4);
       // Turnaround fill: high intensity only
       code += intBand >= 2 ? fillCode() : '\n$: silence;\n';
 
-      // Melody: only when price is actively moving
-      code += pmAbs > 0.05 ? melodyCode(tone, intBand, pmAbs, energy) : '\n$: silence;\n';
+      // Melody: plays during active price movement OR sustained momentum.
+      // Momentum keeps the melody alive during trends even when the
+      // edge-detected price_move decays back to zero.
+      // melodyStrength combines both: whichever is stronger wins.
+      const melodyStrength = Math.max(pmAbs, momAbs * 0.7);
+      code += melodyStrength > 0.05
+        ? melodyCode(tone, intBand, melodyStrength, energy, volQ)
+        : '\n$: silence;\n';
 
       _cachedCode = code;
       _cachedKey = key;
       return code;
     },
 
-    onEvent(type) {
+    onEvent(type, msg) {
       if (type === "spike") {
-        return sound("cr:0").gain(0.06).room(0.4);
-      }
-      return null;
-    },
-
-    onEventCode(type) {
-      if (type === "spike") {
+        // Return code string (evaluate-mode track).
         // Play crash once then go silent — <cr:0 ~ ~ ~> plays beat 1 only,
         // and the next evaluate() call (3s later) drops this pattern entirely.
-        return '$: s("<cr:0 ~ ~ ~>").gain(0.06).room(0.4).orbit(4);';
+        // Scale crash volume with event magnitude if available.
+        const gain = (0.04 + (msg.magnitude || 0.5) * 0.04).toFixed(3);
+        return `$: s("<cr:0 ~ ~ ~>").gain(${gain}).room(0.4).orbit(4);`;
       }
       return null;
     },
