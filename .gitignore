@@ -46,4 +46,7 @@ now_playing.json
 frontend/strudel-bundle.js.map
 
 # Claude Code
-.claude/
+.claude/*
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/polymarket-strudel
