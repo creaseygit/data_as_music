@@ -49,6 +49,13 @@ const audioEngine = (() => {
       },
     });
 
+    // Strudel defers AudioWorklet loading behind a document mousedown listener.
+    // Dispatch a synthetic mousedown to trigger it now (we're already inside a
+    // user gesture from the Play button click, so AudioContext resume works).
+    document.dispatchEvent(new MouseEvent('mousedown'));
+    // Give worklets a moment to load before continuing
+    await new Promise(r => setTimeout(r, 500));
+
     // Insert a master GainNode between Strudel's output and the speakers.
     // Override ctx.destination so all Strudel patterns (both evaluate and
     // pattern mode) route through our gain — this is the volume slider control.
