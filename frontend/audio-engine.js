@@ -49,31 +49,12 @@ const audioEngine = (() => {
       },
     });
 
-    // Strudel defers AudioWorklet loading behind a document mousedown listener
-    // (its Hl function). By the time initStrudel registers it, the Play
-    // button's mousedown has already bubbled. Trigger it now with a synthetic
-    // event and wait for worklets to load.
+    // Strudel defers AudioWorklet loading behind a document mousedown listener.
+    // By the time initStrudel registers it, the Play button's mousedown has
+    // already bubbled. Dispatch a synthetic mousedown to trigger it now.
     try {
-      // Add a debug listener to verify the dispatch reaches document
-      let dispatched = false;
-      const debugFn = () => { dispatched = true; };
-      document.addEventListener('mousedown', debugFn, { once: true, capture: true });
       document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-      console.log('[Audio] Synthetic mousedown dispatched, captured:', dispatched);
-      document.removeEventListener('mousedown', debugFn, { capture: true });
-
-      // Wait for AudioWorklet modules to compile and register
-      const ctx = getAudioContext();
-      const deadline = Date.now() + 3000;
-      while (Date.now() < deadline) {
-        // Check if superdough has initialized by looking for worklet nodes
-        if (ctx.state === 'running') {
-          await new Promise(r => setTimeout(r, 200));
-          // Check if worklets loaded by trying to create one
-          break;
-        }
-        await new Promise(r => setTimeout(r, 100));
-      }
+      await new Promise(r => setTimeout(r, 200));
     } catch (e) {
       console.warn('[Audio] Worklet pre-load attempt:', e);
     }
@@ -101,24 +82,6 @@ const audioEngine = (() => {
       });
     } catch (e) {
       console.warn('[Audio] Master gain setup failed (non-fatal):', e);
-    }
-
-    // Debug: intercept decodeAudioData to log what fails
-    try {
-      const ctx = getAudioContext();
-      const origDecode = ctx.decodeAudioData.bind(ctx);
-      ctx.decodeAudioData = function(buffer, ...args) {
-        const result = origDecode(buffer, ...args);
-        if (result && result.catch) {
-          result.catch(err => {
-            console.error('[Audio] decodeAudioData failed:', err.message,
-              'buffer byteLength:', buffer ? buffer.byteLength : 'null');
-          });
-        }
-        return result;
-      };
-    } catch (e) {
-      console.warn('[Audio] decode debug patch failed:', e);
     }
 
     // Warm up sample buffers — Dirt-Samples index loads during prebake but
