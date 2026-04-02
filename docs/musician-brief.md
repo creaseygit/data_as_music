@@ -130,8 +130,7 @@ Relaxed daytime house (~116 BPM). Layers activate progressively with heat: pad f
 
 ## Tools for Tuning
 
-- **Mastering page** (`/master`) — adjust the volume of each voice (bass, melody, drums, etc.) independently with per-voice gain sliders. Solo or mute individual voices. Export your levels as JSON.
-- **Sandbox page** (`/sandbox`) — no live market needed. Use sliders to simulate any market condition (try the presets: Bull Run, Crash, Dead Market, Chaos, Breakout, Calm Trend). Sweep signals from 0→1 to hear the full dynamic range. Fire test events (spikes, price moves, resolutions).
+- **Sandbox & Mastering** (`/sandbox`) — no live market needed. Use sliders to simulate any market condition (try the presets: Bull Run, Crash, Dead Market, Chaos, Breakout, Calm Trend). Sweep signals from 0→1 to hear the full dynamic range. Fire test events (spikes, price moves, resolutions). Adjust the volume of each voice (bass, melody, drums, etc.) independently with per-voice gain sliders. Solo or mute individual voices. Export your levels as JSON and send to the dev team to suggest mastering updates.
 
 ## Quick Reference Card
 

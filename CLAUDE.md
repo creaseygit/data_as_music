@@ -49,7 +49,7 @@ CloudFlare → Nginx → Python aiohttp (data only) ←→ Market APIs (Polymark
 
 | File                      | Purpose                                                                                                              |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `server.py`               | **Main entry point**. aiohttp web server, WebSocket handler (`/ws`), per-client broadcast loop, browse API, `/master` and `/sandbox` page routes |
+| `server.py`               | **Main entry point**. aiohttp web server, WebSocket handler (`/ws`), per-client broadcast loop, browse API, `/sandbox` page route (`/master` redirects to `/sandbox`) |
 | `sessions.py`             | `ClientSession` (per-client state) + `SessionManager` (shared market WS subscriptions via ref counting)              |
 | `config.py`               | Tunable constants (API URLs, scoring weights, WS config, sensitivity defaults, event thresholds, `BROWSE_CATEGORIES`)|
 | `market/gamma.py`         | Gamma REST API client: `fetch_active_markets`, `fetch_browse_markets`, `fetch_market_by_slug`, etc.                  |
@@ -61,8 +61,7 @@ CloudFlare → Nginx → Python aiohttp (data only) ←→ Market APIs (Polymark
 | `frontend/ws-client.js`   | WebSocket client with auto-reconnect                                                                                  |
 | `frontend/audio-engine.js`| Strudel init, track registry, pattern lifecycle (two modes: `evaluate` for raw strudel code, `pattern` for Pattern objects), music theory utils, track state getters (`getTrackRegistry()`, `getCurrentTrack()`, `getLatestData()`, `isPlaying()`) |
 | `frontend/tracks/*.js`    | Track files (auto-discovered, dynamically loaded): `jazz_trio.js` (Late Night in Bb — 9-voice jazz trio with voice gain system), `poolside_house.js` (Poolside House — 7-voice relaxed house), `oracle.js` (piano chords tracing price curve), `diagnostic.js` (one sound per signal for audible data verification), `_template.js` (annotated starter template for new tracks with voice/mastering support). Drop a new `.js` file here and restart the server — no other changes needed |
-| `frontend/master.html`    | Mastering page (`/master`): per-voice gain sliders, solo/mute, JSON export/import, connected to live market data via WebSocket |
-| `frontend/sandbox.html`   | Sandbox page (`/sandbox`): simulated market data sliders, presets, sweeps, event triggers, voice gain mixing — no live market needed |
+| `frontend/sandbox.html`   | Sandbox & Mastering page (`/sandbox`): simulated market data sliders, presets, sweeps, event triggers, voice gain mixing with solo/mute, JSON export/import — no live market needed |
 | `frontend/build/`         | npm build for custom Strudel bundle (`@strudel/web` + `@strudel/soundfonts`). Run `cd frontend/build && npm run build` to regenerate `frontend/strudel-bundle.js` |
 | `deploy/`                 | Nginx config, `data-as-music.service` systemd unit, EC2 setup script. Deploy path: `/opt/data_as_music`                |
 

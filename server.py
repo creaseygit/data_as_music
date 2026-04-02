@@ -789,11 +789,8 @@ async def handle_index(request):
 
 
 async def handle_master(request):
-    """Serve the mastering page."""
-    path = Path("frontend/master.html")
-    if path.exists():
-        return web.FileResponse(path)
-    return web.Response(text="Mastering page not found.", status=404)
+    """Redirect /master to /sandbox (which now includes mastering)."""
+    raise web.HTTPFound("/sandbox")
 
 
 async def handle_sandbox(request):

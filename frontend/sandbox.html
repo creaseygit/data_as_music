@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sandbox — Data as Music</title>
+<title>Sandbox & Mastering — Data as Music</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎵</text></svg>">
 <link rel="stylesheet" href="/static/style.css">
 <style>
@@ -54,11 +54,10 @@
 </head>
 <body>
 <div class="container">
-  <h1>SANDBOX</h1>
-  <div class="subtitle">Simulate market data. Explore a track's full dynamic range.</div>
+  <h1>SANDBOX & MASTERING</h1>
+  <div class="subtitle">Simulate market data, explore a track's full dynamic range, and dial in your voice levels.</div>
   <div class="nav-links">
     <a href="/">Main</a>
-    <a href="/master">Mastering</a>
   </div>
 
   <!-- Audio Control -->
@@ -145,6 +144,9 @@
       <button onclick="exportJSON()">Export JSON</button>
       <button onclick="document.getElementById('import-file').click()">Import JSON</button>
       <input type="file" id="import-file" accept=".json" style="display:none" onchange="importJSON(this)">
+    </div>
+    <div style="color:#888; font-size:11px; margin-top:10px; line-height:1.5;">
+      Want to suggest mastering updates? Export your voice levels as JSON and send the file to the dev team for review.
     </div>
   </div>
 
