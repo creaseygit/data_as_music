@@ -474,10 +474,11 @@ function onVoiceSlider(voiceId, rawVal) {
   const val = parseInt(rawVal) / 100;
   track.gains[voiceId] = val;
   document.getElementById('val-' + voiceId).textContent = val.toFixed(2);
+  pushData();
 }
 
-function toggleSolo(id) { soloState[id] = !soloState[id]; updateSoloMuteUI(); }
-function toggleMute(id) { muteState[id] = !muteState[id]; updateSoloMuteUI(); }
+function toggleSolo(id) { soloState[id] = !soloState[id]; updateSoloMuteUI(); pushData(); }
+function toggleMute(id) { muteState[id] = !muteState[id]; updateSoloMuteUI(); pushData(); }
 
 function updateSoloMuteUI() {
   const track = getTrack();
