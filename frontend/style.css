@@ -136,6 +136,50 @@ input[type="range"]::-moz-range-thumb {
 .donate-footer a { color: #00aaff; text-decoration: none; }
 .donate-footer a:hover { text-decoration: underline; }
 
+/* ── Mobile Responsive ── */
+@media (max-width: 600px) {
+  .container { padding: 12px; }
+  h1 { font-size: 20px; }
+
+  /* Audio grid: stack vertically */
+  .audio-grid {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+  .audio-track { justify-self: stretch; }
+  .audio-track select { width: 100%; }
+
+  /* Volume/sensitivity sliders: full width */
+  .audio-volume input[type="range"],
+  .audio-sensitivity input[type="range"] {
+    width: 100% !important;
+    min-width: 0;
+  }
+  .audio-volume > div,
+  .audio-sensitivity > div {
+    width: 100%;
+  }
+
+  /* Now playing data grid: 2 columns on mobile */
+  .data-grid { grid-template-columns: repeat(2, 1fr); }
+
+  /* URL row: stack on very small screens */
+  .url-row { flex-direction: column; }
+  .url-row input { width: 100%; }
+  .url-row button { width: 100%; }
+
+  /* Now playing header */
+  .np-header { flex-direction: column; gap: 6px; }
+  .np-link { align-self: flex-start; }
+
+  /* Browse cards: allow question text to wrap */
+  .browse-question { white-space: normal; }
+
+  /* Buttons: ensure touch-friendly sizing */
+  button { min-height: 40px; }
+  select { min-height: 40px; }
+}
+
 #log {
   background: #08080c; border: 1px solid #1a1a2e; border-radius: 4px;
   padding: 10px; height: 100px; overflow-y: auto; font-size: 11px; color: #444; margin-top: 10px;

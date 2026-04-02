@@ -8,7 +8,31 @@
 <link rel="stylesheet" href="/static/style.css">
 <style>
 .sandbox-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-@media (max-width: 700px) { .sandbox-layout { grid-template-columns: 1fr; } }
+@media (max-width: 700px) {
+  .sandbox-layout { grid-template-columns: 1fr; }
+  .voice-row {
+    grid-template-columns: 1fr auto;
+    grid-template-rows: auto auto;
+    gap: 6px 10px;
+    padding: 10px;
+  }
+  .voice-row input[type="range"] { grid-column: 1 / -1; }
+  .voice-row .voice-val { justify-self: end; }
+  .master-volume-row {
+    grid-template-columns: 1fr 50px !important;
+    grid-template-rows: auto auto;
+    gap: 6px 10px;
+  }
+  .master-volume-row input[type="range"] { grid-column: 1 / -1; }
+  .sandbox-audio-controls {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .sandbox-audio-controls .audio-track select { width: 100%; }
+  .event-grid { grid-template-columns: 1fr; }
+  .preset-grid { grid-template-columns: 1fr 1fr; }
+  .signal-row { grid-template-columns: 80px 1fr 40px; gap: 6px; }
+}
 .signal-row {
   display: grid;
   grid-template-columns: 90px 1fr 50px;
@@ -44,6 +68,9 @@
 .nav-links { display: flex; gap: 12px; margin-bottom: 16px; }
 .nav-links a { color: #00aaff; text-decoration: none; font-size: 12px; padding: 4px 10px; border: 1px solid #00aaff44; border-radius: 4px; }
 .nav-links a:hover { background: #00aaff22; }
+.sandbox-audio-controls {
+  display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: center;
+}
 .master-volume-row {
   display: grid; grid-template-columns: 100px 1fr 50px;
   gap: 10px; align-items: center; padding: 10px 12px;
@@ -68,7 +95,7 @@
         <span id="audio-label">Stopped</span>
       </div>
     </div>
-    <div style="display:grid; grid-template-columns:auto 1fr; gap:12px; align-items:center;">
+    <div class="sandbox-audio-controls">
       <button id="audio-toggle-btn" onclick="toggleAudio()">Play</button>
       <div class="audio-track">
         <label style="color:#555; font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Track</label>
@@ -139,7 +166,7 @@
     <div id="voices-container" style="display:flex; flex-direction:column; gap:8px;">
       <div style="color:#555; font-size:12px;">Select a track to see voices.</div>
     </div>
-    <div style="display:flex; gap:8px; margin-top:10px;">
+    <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
       <button onclick="resetVoices()">Reset Voices</button>
       <button onclick="exportJSON()">Export JSON</button>
       <button onclick="document.getElementById('import-file').click()">Import JSON</button>
