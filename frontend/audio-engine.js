@@ -49,12 +49,34 @@ const audioEngine = (() => {
       },
     });
 
-    // Strudel defers AudioWorklet loading behind a document mousedown listener.
-    // Dispatch a synthetic mousedown to trigger it now (we're already inside a
-    // user gesture from the Play button click, so AudioContext resume works).
-    document.dispatchEvent(new MouseEvent('mousedown'));
-    // Give worklets a moment to load before continuing
-    await new Promise(r => setTimeout(r, 500));
+    // Strudel defers AudioWorklet loading behind a document mousedown listener
+    // (its Hl function). By the time initStrudel registers it, the Play
+    // button's mousedown has already bubbled. Trigger it now with a synthetic
+    // event and wait for worklets to load.
+    try {
+      // Add a debug listener to verify the dispatch reaches document
+      let dispatched = false;
+      const debugFn = () => { dispatched = true; };
+      document.addEventListener('mousedown', debugFn, { once: true, capture: true });
+      document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      console.log('[Audio] Synthetic mousedown dispatched, captured:', dispatched);
+      document.removeEventListener('mousedown', debugFn, { capture: true });
+
+      // Wait for AudioWorklet modules to compile and register
+      const ctx = getAudioContext();
+      const deadline = Date.now() + 3000;
+      while (Date.now() < deadline) {
+        // Check if superdough has initialized by looking for worklet nodes
+        if (ctx.state === 'running') {
+          await new Promise(r => setTimeout(r, 200));
+          // Check if worklets loaded by trying to create one
+          break;
+        }
+        await new Promise(r => setTimeout(r, 100));
+      }
+    } catch (e) {
+      console.warn('[Audio] Worklet pre-load attempt:', e);
+    }
 
     // Insert a master GainNode between Strudel's output and the speakers.
     // Override ctx.destination so all Strudel patterns (both evaluate and
