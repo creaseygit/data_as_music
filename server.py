@@ -32,7 +32,7 @@ from config import (
     RESCORE_INTERVAL, BROWSE_CATEGORIES,
     DEFAULT_SENSITIVITY, EVENT_HEAT_THRESHOLD, EVENT_PRICE_THRESHOLD,
     WS_PING_INTERVAL, MAX_CLIENTS, DATA_PUSH_INTERVAL,
-    PRICE_MOVE_WINDOW, PRICE_MOVE_MAX, WARMUP_DURATION,
+    PRICE_MOVE_WINDOW, PRICE_MOVE_MAX, DRIFT_THRESHOLD, WARMUP_DURATION,
 )
 
 
@@ -257,6 +257,7 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
         session._price_history.clear()
         session._ema_fast = last_price
         session._ema_slow = last_price
+        session._drift_anchor = last_price
         session._market_start_time = time.monotonic()
 
     # Append to rolling price buffer (one entry per broadcast cycle)
@@ -299,6 +300,7 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
             direction = 1 if raw_price_delta > 0 else -1
             move_mag = min(1.0, abs_price_delta / (EVENT_PRICE_THRESHOLD * 3))
             events.append({"event": "price_move", "direction": direction, "magnitude": round(move_mag, 4)})
+            session._drift_anchor = last_price  # reset anchor on event too
     session._prev_heat = heat
     session._prev_price = last_price
 
@@ -319,7 +321,7 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
 
     # Edge detection: only emit price_move when movement is *increasing*
     # (actively moving). When magnitude is flat or decaying (stale window
-    # sliding past a completed move), emit zero.
+    # sliding past a completed move), emit zero — unless drift is detected.
     prev_pm = session._prev_price_move
     same_dir = (price_move_raw >= 0) == (prev_pm >= 0)
     if same_dir and abs(price_move_raw) > abs(prev_pm) + 0.01:
@@ -328,6 +330,21 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
         price_move_n = price_move_raw          # direction flipped → new move
     else:
         price_move_n = 0.0                     # flat or decaying → silence
+
+    # Drift detection: catch slow cumulative creep that the edge detector misses.
+    # When edge detector emits zero, check displacement from the anchor price
+    # (set at the last non-zero emission). If it exceeds the drift threshold,
+    # emit a price_move based on the total drift.
+    if price_move_n == 0.0 and not is_rotation:
+        drift = last_price - session._drift_anchor
+        if abs(drift) >= DRIFT_THRESHOLD:
+            drift_sign = 1.0 if drift >= 0 else -1.0
+            drift_mag = min(1.0, abs(drift) / PRICE_MOVE_MAX)
+            price_move_n = drift_sign * drift_mag
+
+    # Update drift anchor whenever we emit a non-zero price_move
+    if price_move_n != 0.0:
+        session._drift_anchor = last_price
     session._prev_price_move = price_move_raw
 
     # Apply sensitivity to the edge-detected result (not the raw input)

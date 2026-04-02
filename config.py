@@ -23,6 +23,7 @@ EVENT_PRICE_THRESHOLD  = 0.03      # price delta (¢) to fire :event_price_move
 # ── Rolling price movement ─────────────────────────────────
 PRICE_MOVE_WINDOW      = 30        # seconds — look-back for price_move signal
 PRICE_MOVE_MAX         = 0.03      # 3¢ move in window = magnitude 1.0
+DRIFT_THRESHOLD        = 0.05      # 5¢ cumulative creep since last detected move → emit price_move
 
 # ── WebSocket (server → browser) ────────────────────────
 WS_PING_INTERVAL = 30           # seconds, keep-alive for CloudFlare's 100s idle timeout

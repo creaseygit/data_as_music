@@ -33,6 +33,7 @@ class ClientSession:
         # Supports sensitivity-scaled windows for momentum & volatility.
         self._price_history: deque[float] = deque(maxlen=160)
         self._prev_price_move: float = 0.0
+        self._drift_anchor: float = 0.5    # price at last price_move emission
 
         # Dual-EMA state for momentum (MACD-inspired)
         self._ema_fast: float = 0.5
@@ -49,6 +50,7 @@ class ClientSession:
         self._current_tone = 1
         self._price_history.clear()
         self._prev_price_move = 0.0
+        self._drift_anchor = 0.5
         self._ema_fast = 0.5
         self._ema_slow = 0.5
         self._market_start_time = time.monotonic()
