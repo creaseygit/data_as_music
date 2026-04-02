@@ -132,6 +132,10 @@ input[type="range"]::-moz-range-thumb {
 .market-link { color: #00aaff; text-decoration: none; font-size: 16px; padding: 6px 10px; border: 1px solid #1a1a2e; border-radius: 4px; transition: all 0.15s; white-space: nowrap; }
 .market-link:hover { color: #fff; background: #00aaff22; border-color: #00aaff; }
 
+.nav-links { display: flex; gap: 12px; margin-bottom: 16px; }
+.nav-links a { color: #00aaff; text-decoration: none; font-size: 12px; padding: 4px 10px; border: 1px solid #00aaff44; border-radius: 4px; }
+.nav-links a:hover { background: #00aaff22; }
+.nav-links a.active { background: #00aaff22; border-color: #00aaff; }
 .donate-footer { text-align: center; margin-top: 24px; padding: 12px; color: #444; font-size: 11px; }
 .donate-footer a { color: #00aaff; text-decoration: none; }
 .donate-footer a:hover { text-decoration: underline; }
