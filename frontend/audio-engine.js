@@ -74,11 +74,30 @@ const audioEngine = (() => {
       console.warn('[Audio] Master gain setup failed (non-fatal):', e);
     }
 
+    // Debug: intercept decodeAudioData to log what fails
+    try {
+      const ctx = getAudioContext();
+      const origDecode = ctx.decodeAudioData.bind(ctx);
+      ctx.decodeAudioData = function(buffer, ...args) {
+        const result = origDecode(buffer, ...args);
+        if (result && result.catch) {
+          result.catch(err => {
+            console.error('[Audio] decodeAudioData failed:', err.message,
+              'buffer byteLength:', buffer ? buffer.byteLength : 'null');
+          });
+        }
+        return result;
+      };
+    } catch (e) {
+      console.warn('[Audio] decode debug patch failed:', e);
+    }
+
     // Warm up sample buffers — Dirt-Samples index loads during prebake but
     // the actual .wav files are fetched lazily on first trigger.  Play a
     // short silent pattern that touches every drum sound we use so the
     // browser fetches and decodes them before the user hears anything.
-    // Poll until the sampler reports no pending loads (up to 8s).
+    // Use a tiny gain instead of 0 so Strudel fully processes the sound
+    // path (including AudioWorklet initialization).
     try {
       stack(
         // Drums
@@ -99,7 +118,7 @@ const audioEngine = (() => {
         note("c2 e2 a2").sound("gm_acoustic_bass"),
         note("c4").sound("gm_epiano1"),
         note("c5").sound("gm_vibraphone"),
-      ).gain(0).play();
+      ).gain(0.001).play();
       // Wait for fetches to complete — CDN samples take 2-4s
       await new Promise(r => setTimeout(r, 5000));
       hush();
