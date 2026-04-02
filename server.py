@@ -12,6 +12,7 @@ import asyncio
 import json
 import re
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
@@ -31,7 +32,7 @@ from config import (
     RESCORE_INTERVAL, BROWSE_CATEGORIES,
     DEFAULT_SENSITIVITY, EVENT_HEAT_THRESHOLD, EVENT_PRICE_THRESHOLD,
     WS_PING_INTERVAL, MAX_CLIENTS, DATA_PUSH_INTERVAL,
-    PRICE_MOVE_WINDOW, PRICE_MOVE_MAX,
+    PRICE_MOVE_WINDOW, PRICE_MOVE_MAX, WARMUP_DURATION,
 )
 
 
@@ -123,6 +124,17 @@ def _sensitivity_window(sensitivity: float) -> int:
     than long ones (9-EMA vs 20-EMA is a bigger deal than 180 vs 200).
     """
     return max(4, int(160 * (15 / 160) ** sensitivity))
+
+
+def _warmup_factor(session: ClientSession) -> float:
+    """Smooth 0→1 tween over WARMUP_DURATION seconds since market switch.
+    Uses smoothstep (3t²-2t³) for a gradual ease-in that reaches 1.0
+    with zero slope — no perceptible jump at the end."""
+    elapsed = time.monotonic() - session._market_start_time
+    if elapsed >= WARMUP_DURATION:
+        return 1.0
+    t = elapsed / WARMUP_DURATION
+    return t * t * (3.0 - 2.0 * t)
 
 
 def _get_api_price(market: dict, asset_id: str) -> float | None:
@@ -245,6 +257,7 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
         session._price_history.clear()
         session._ema_fast = last_price
         session._ema_slow = last_price
+        session._market_start_time = time.monotonic()
 
     # Append to rolling price buffer (one entry per broadcast cycle)
     session._price_history.append(last_price)
@@ -321,6 +334,19 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
     if price_move_n != 0.0:
         pm_sign = 1.0 if price_move_n >= 0 else -1.0
         price_move_n = pm_sign * _apply_sensitivity(abs(price_move_n), sens_exp)
+
+    # ── Warmup blend: tween activity signals from calm to real ──
+    w = _warmup_factor(session)
+    if w < 1.0:
+        heat_n *= w
+        velocity_n *= w
+        trade_rate_n *= w
+        spread_n *= w
+        volatility_n *= w
+        momentum_n *= w
+        price_move_n *= w
+        # Suppress events during warmup — they'd be noise
+        events = []
 
     data = {
         "heat": round(heat_n, 4),

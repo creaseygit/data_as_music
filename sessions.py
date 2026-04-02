@@ -5,6 +5,7 @@ Each browser client gets a ClientSession with independent market selection,
 sensitivity, and event detection state. SessionManager coordinates shared
 market WebSocket subscriptions via reference counting.
 """
+import time
 import uuid
 from collections import deque
 from aiohttp import web
@@ -37,6 +38,9 @@ class ClientSession:
         self._ema_fast: float = 0.5
         self._ema_slow: float = 0.5
 
+        # Warmup: timestamp when current market was selected
+        self._market_start_time: float = 0.0
+
     def reset_event_state(self):
         """Reset event baselines (e.g. after market switch)."""
         self._prev_heat = 0.0
@@ -47,6 +51,7 @@ class ClientSession:
         self._prev_price_move = 0.0
         self._ema_fast = 0.5
         self._ema_slow = 0.5
+        self._market_start_time = time.monotonic()
 
 
 class SessionManager:

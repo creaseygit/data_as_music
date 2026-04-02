@@ -29,6 +29,9 @@ WS_PING_INTERVAL = 30           # seconds, keep-alive for CloudFlare's 100s idle
 MAX_CLIENTS      = 200          # safety limit on concurrent WebSocket connections
 DATA_PUSH_INTERVAL = 3.0        # seconds between market data pushes to clients
 
+# ── Warmup (intro fade-in on market switch) ─────────────
+WARMUP_DURATION    = 18.0       # seconds — activity signals tween from calm to real data
+
 # ── Browse categories ──────────────────────────────────
 # Tag IDs for the Browse tabs in the web UI
 BROWSE_CATEGORIES = [
