@@ -84,6 +84,24 @@ const audioEngine = (() => {
       console.warn('[Audio] Master gain setup failed (non-fatal):', e);
     }
 
+    // Debug: intercept fetch to log empty audio responses
+    {
+      const origFetch = window.fetch;
+      window.fetch = async function(...args) {
+        const resp = await origFetch.apply(this, args);
+        const url = typeof args[0] === 'string' ? args[0] : args[0]?.url || '';
+        // Clone response to check body without consuming it
+        if (url.match(/\.(wav|mp3|ogg|flac|sf2)(\?|$)/i) || url.includes('Dirt-Samples') || url.includes('piano') || url.includes('soundfont')) {
+          const clone = resp.clone();
+          const buf = await clone.arrayBuffer();
+          if (buf.byteLength === 0) {
+            console.error('[Audio] Empty response for:', url, 'status:', resp.status);
+          }
+        }
+        return resp;
+      };
+    }
+
     // Warm up sample buffers — Dirt-Samples index loads during prebake but
     // the actual .wav files are fetched lazily on first trigger.  Play a
     // short silent pattern that touches every drum sound we use so the
