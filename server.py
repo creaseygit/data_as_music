@@ -815,6 +815,14 @@ async def handle_sandbox(request):
     return web.Response(text="Sandbox page not found.", status=404)
 
 
+async def handle_about(request):
+    """Serve the about page."""
+    path = Path("frontend/about.html")
+    if path.exists():
+        return web.FileResponse(path)
+    return web.Response(text="About page not found.", status=404)
+
+
 async def handle_browse(request):
     """Browse markets by category."""
     import market.gamma as gamma_module
@@ -903,6 +911,9 @@ def create_app():
     app.router.add_get("/", handle_index)
     app.router.add_get("/master", handle_master)
     app.router.add_get("/sandbox", handle_sandbox)
+    app.router.add_get("/about", handle_about)
+    app.router.add_get("/robots.txt", lambda r: web.FileResponse("frontend/robots.txt"))
+    app.router.add_get("/sitemap.xml", lambda r: web.FileResponse("frontend/sitemap.xml"))
 
     # WebSocket
     app.router.add_get("/ws", handle_ws)

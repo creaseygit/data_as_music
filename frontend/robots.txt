@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Allow: /about
+Allow: /sandbox
+Disallow: /ws
+Disallow: /api/
+
+Sitemap: https://dam.fm/sitemap.xml
