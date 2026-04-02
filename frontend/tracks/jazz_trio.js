@@ -1,37 +1,38 @@
 // ── Late Night in Bb — Jazz Piano Trio ───────────────────
-// Two paradigms: bullish (Bb major, ascending) / bearish (G minor, descending).
-// Tone selects paradigm; trade_rate + velocity drive complexity.
-// Heat controls overall energy (volume scaling).
-// Momentum sustains melody during trends (not just edge-detected moves).
-// Volatility drives piano detuning, delay feedback, bass LPF (uncertainty = muddier).
+// Two tonalities: bullish (Bb major) / bearish (G minor).
+// Tone selects major/minor quality; momentum drives ascending/descending contour.
+// Heat controls layer density — a dead market converges to silence.
+// Trade rate + velocity drive rhythmic complexity (intBand).
+// Momentum magnitude drives melodic range (melodicBand).
+// Volatility → piano detuning, delay wash, bass darkness.
 // category: 'music', label: 'Late Night in Bb'
 
 const jazzTrioTrack = (() => {
   let _cachedCode = null;
   let _cachedKey = null;
 
-  // ── Chord changes ──
-  // Bullish: ii-V-I-IV in Bb major (bright, resolved to tonic)
-  const BULLISH_CHANGES = "<Cm7 F7 Bb^7 Eb^7 Cm7 F7 Bb^7 Bb^7>";
-  // Bearish: iiø-V-i-iv in G minor (dark, tense, resolves to minor)
-  const BEARISH_CHANGES = "<Am7b5 D7 Gm7 Cm7 Am7b5 D7 Gm7 Gm7>";
+  function q(v, step) { return Math.round(v / step) * step; }
 
   function scaleGains(pattern, factor) {
     return pattern.replace(/\d+\.\d+/g, (m) =>
-      (parseFloat(m) * factor).toFixed(2)
+      (parseFloat(m) * factor).toFixed(3)
     );
   }
 
-  function q(v, step) {
-    return Math.round(v / step) * step;
-  }
+  // ── Chord changes ──
+  const BULLISH_CHANGES = "<Cm7 F7 Bb^7 Eb^7 Cm7 F7 Bb^7 Bb^7>";
+  const BEARISH_CHANGES = "<Am7b5 D7 Gm7 Cm7 Am7b5 D7 Gm7 Gm7>";
 
-  // ── Bass note patterns: BULL_BASS[intBand], BEAR_BASS[intBand] ──
-  // Each is 16 bars (two passes through the 8-bar form).
+  // ════════════════════════════════════════════════════════════
+  // BASS PATTERNS — indexed by [intBand] (0=sparse, 1=mid, 2=busy)
+  // Selected by tone (Bb major/G minor) × direction (up/down/flat)
+  // Direction from momentum sign, melodic range from melodicBand
+  // ════════════════════════════════════════════════════════════
 
-  // Bullish bass: ascending through chord tones (root→3rd→5th→approach)
-  const BULL_BASS = [
-    // Low: simple ascending quarter notes
+  // Bb major — ascending bass (walking UP through chord tones)
+  // Cm7 | F7 | Bb^7 | Eb^7 | Cm7 | F7 | Bb^7 | Bb^7
+  const BB_BASS_UP = [
+    // intBand 0: quarter-note ascending arpeggios
     `<
   [C2 D2 Eb2 E2]
   [F2 A2 Bb2 A2]
@@ -41,16 +42,8 @@ const jazzTrioTrack = (() => {
   [F2 G2 A2 Bb2]
   [Bb2 D3 C3 A2]
   [Bb2 A2 C3 Bb2]
-  [C2 Eb2 F2 E2]
-  [F2 A2 C3 A2]
-  [Bb2 D3 C3 D2]
-  [Eb2 G2 Bb2 B2]
-  [C2 D2 Eb2 E2]
-  [F2 G2 Bb2 A2]
-  [Bb2 C3 D3 Bb2]
-  [Bb2 D3 C3 Bb2]
 >`,
-    // Mid: eighth-note approaches on beat 4
+    // intBand 1: eighth-note approaches on beat 4
     `<
   [C2 Eb2 G2 [Bb2 E2]]
   [F2 A2 C3 [Bb2 A2]]
@@ -60,16 +53,8 @@ const jazzTrioTrack = (() => {
   [F2 A2 Bb2 [C3 A2]]
   [Bb2 C3 D3 Bb2]
   [Bb2 D3 [C3 D3] Bb2]
-  [C2 Eb2 G2 [A2 E2]]
-  [F2 G2 A2 [C3 A2]]
-  [Bb2 D3 C3 [Eb3 D2]]
-  [Eb2 F2 G2 [Bb2 B2]]
-  [C2 D2 [Eb2 G2] E2]
-  [F2 A2 C3 [Bb2 A2]]
-  [Bb2 [C3 D3] C3 A2]
-  [Bb2 C3 [D3 C3] Bb2]
 >`,
-    // High: busy chromatic fills, wider leaps
+    // intBand 2: busy chromatic ascending fills
     `<
   [C2 [D2 Eb2] G2 [A2 E2]]
   [F2 [G2 A2] C3 [Bb2 A2]]
@@ -79,20 +64,97 @@ const jazzTrioTrack = (() => {
   [[F2 A2] C3 [Bb2 C3] A2]
   [[Bb2 D3] C3 D3 [Eb3 Bb2]]
   [Bb2 [C3 D3] [Eb3 D3] Bb2]
-  [C2 [D2 Eb2] G2 [Bb2 E2]]
-  [[F2 G2] A2 [Bb2 C3] A2]
-  [Bb2 [C3 D3] C3 [D3 D2]]
-  [[Eb2 F2] G2 [Ab2 Bb2] B2]
-  [C2 [D2 Eb2] [F2 G2] E2]
-  [F2 [G2 A2] [Bb2 C3] A2]
-  [Bb2 [C3 D3] [C3 D3] Bb2]
-  [[Bb2 D3] [C3 Bb2] [A2 C3] Bb2]
 >`,
   ];
 
-  // Bearish bass: descending through chord tones (7th→5th→3rd→root)
-  const BEAR_BASS = [
-    // Low: simple descending quarter notes
+  // Bb major — descending bass (walking DOWN through chord tones)
+  const BB_BASS_DOWN = [
+    // intBand 0: quarter-note descending arpeggios
+    `<
+  [Bb2 G2 Eb2 C2]
+  [C3 A2 F2 Eb2]
+  [A2 F2 D2 Bb1]
+  [Bb2 G2 Eb2 D2]
+  [G2 Eb2 C2 Bb1]
+  [A2 F2 Eb2 C2]
+  [D3 Bb2 F2 D2]
+  [Bb2 A2 F2 D2]
+>`,
+    // intBand 1: eighth-note descending approaches
+    `<
+  [Bb2 G2 Eb2 [D2 C2]]
+  [C3 A2 [G2 F2] Eb2]
+  [A2 F2 D2 [Eb2 Bb1]]
+  [Bb2 G2 [F2 Eb2] D2]
+  [G2 Eb2 C2 [D2 Bb1]]
+  [A2 [G2 F2] Eb2 C2]
+  [D3 [C3 Bb2] F2 D2]
+  [Bb2 [A2 G2] F2 D2]
+>`,
+    // intBand 2: busy descending chromatic runs
+    `<
+  [[Bb2 A2] G2 [F2 Eb2] C2]
+  [[C3 Bb2] A2 [G2 F2] Eb2]
+  [[A2 G2] F2 [Eb2 D2] Bb1]
+  [[Bb2 Ab2] G2 [F2 Eb2] D2]
+  [[G2 F2] Eb2 [D2 C2] Bb1]
+  [[A2 G2] F2 [Eb2 D2] C2]
+  [[D3 C3] Bb2 [A2 F2] D2]
+  [[Bb2 A2] [G2 F2] [Eb2 D2] Bb1]
+>`,
+  ];
+
+  // Bb major — flat bass (minimal movement, roots + neighbors)
+  const BB_BASS_FLAT = [
+    // intBand 0: whole notes on chord roots
+    `<[C2 ~ ~ ~] [F2 ~ ~ ~] [Bb1 ~ ~ ~] [Eb2 ~ ~ ~] [C2 ~ ~ ~] [F2 ~ ~ ~] [Bb1 ~ ~ ~] [Bb1 ~ ~ ~]>`,
+    // intBand 1: half notes, root and 5th
+    `<[C2 ~ G2 ~] [F2 ~ C3 ~] [Bb1 ~ F2 ~] [Eb2 ~ Bb2 ~] [C2 ~ G2 ~] [F2 ~ C3 ~] [Bb1 ~ F2 ~] [Bb1 ~ F2 ~]>`,
+    // intBand 2: quarter notes, small intervals around roots
+    `<[C2 D2 C2 Bb1] [F2 G2 F2 Eb2] [Bb1 C2 D2 Bb1] [Eb2 F2 Eb2 D2] [C2 Bb1 C2 D2] [F2 Eb2 F2 G2] [Bb1 D2 C2 Bb1] [Bb1 C2 Bb1 A1]>`,
+  ];
+
+  // G minor — ascending bass (walking UP through chord tones)
+  // Am7b5 | D7 | Gm7 | Cm7 | Am7b5 | D7 | Gm7 | Gm7
+  const GM_BASS_UP = [
+    // intBand 0: quarter-note ascending arpeggios
+    `<
+  [A1 C2 Eb2 G2]
+  [D2 F#2 A2 C3]
+  [G1 Bb1 D2 G2]
+  [C2 Eb2 G2 Bb2]
+  [A1 Eb2 G2 A2]
+  [D2 F#2 A2 C3]
+  [G1 D2 Bb2 D3]
+  [G2 Bb2 C3 D3]
+>`,
+    // intBand 1: eighth-note ascending approaches
+    `<
+  [A1 C2 Eb2 [F2 G2]]
+  [D2 F#2 [G2 A2] C3]
+  [G1 Bb1 D2 [Eb2 G2]]
+  [C2 Eb2 [F2 G2] Bb2]
+  [A1 [Bb1 C2] Eb2 G2]
+  [D2 [Eb2 F#2] A2 C3]
+  [G1 [A1 Bb1] D2 G2]
+  [G2 [A2 Bb2] C3 D3]
+>`,
+    // intBand 2: busy ascending chromatic fills
+    `<
+  [A1 [Bb1 C2] Eb2 [F2 G2]]
+  [[D2 Eb2] F#2 [G2 A2] C3]
+  [G1 [A1 Bb1] [C2 D2] G2]
+  [C2 [D2 Eb2] [F2 G2] Bb2]
+  [[A1 C2] Eb2 [F2 G2] A2]
+  [D2 [Eb2 F#2] [A2 Bb2] C3]
+  [[G1 Bb1] D2 [Eb2 F2] G2]
+  [G2 [A2 Bb2] [C3 D3] D3]
+>`,
+  ];
+
+  // G minor — descending bass (walking DOWN through chord tones)
+  const GM_BASS_DOWN = [
+    // intBand 0: quarter-note descending arpeggios
     `<
   [A2 G2 Eb2 D2]
   [D3 C3 A2 Ab2]
@@ -102,16 +164,8 @@ const jazzTrioTrack = (() => {
   [D3 A2 F#2 Ab2]
   [G2 F2 D2 Bb1]
   [G2 F2 Eb2 D2]
-  [A2 G2 Eb2 D2]
-  [D3 C3 F#2 Ab2]
-  [G2 D2 Bb1 C2]
-  [C3 Bb2 G2 Bb2]
-  [A2 Eb2 C2 D2]
-  [D3 A2 C3 Ab2]
-  [G2 F2 Eb2 D2]
-  [G2 D2 Bb1 G1]
 >`,
-    // Mid: chromatic descending approaches
+    // intBand 1: eighth-note descending approaches
     `<
   [A2 G2 Eb2 [C2 D2]]
   [D3 C3 A2 [Bb2 Ab2]]
@@ -121,16 +175,8 @@ const jazzTrioTrack = (() => {
   [D3 [C3 A2] F#2 Ab2]
   [G2 [F2 D2] Bb1 C2]
   [G2 [Bb2 A2] F2 G2]
-  [A2 G2 [Eb2 C2] D2]
-  [D3 [C3 A2] F#2 [Bb2 Ab2]]
-  [G2 F2 [D2 Bb1] C2]
-  [C3 [Bb2 Ab2] G2 Bb2]
-  [A2 [G2 Eb2] C2 [Eb2 D2]]
-  [D3 C3 [A2 F#2] Ab2]
-  [G2 [F2 D2] [Eb2 C2] D2]
-  [G2 [F2 Eb2] D2 G1]
 >`,
-    // High: fast descending runs
+    // intBand 2: busy descending chromatic runs
     `<
   [[A2 G2] Eb2 C2 [Eb2 D2]]
   [[D3 C3] A2 F#2 [Bb2 Ab2]]
@@ -140,18 +186,20 @@ const jazzTrioTrack = (() => {
   [[D3 C3] [A2 F#2] C3 Ab2]
   [G2 [F2 D2] [Bb1 D2] C2]
   [G2 [Bb2 A2] [F2 Eb2] G1]
-  [[A2 G2] [Eb2 C2] Eb2 D2]
-  [D3 [C3 A2] [F#2 A2] Ab2]
-  [[G2 F2] [D2 Bb1] [C2 Eb2] C2]
-  [C3 [Bb2 Ab2] [G2 Bb2] Bb2]
-  [A2 [G2 Eb2] [C2 D2] [Eb2 D2]]
-  [[D3 C3] [A2 C3] [F#2 A2] Ab2]
-  [[G2 F2] D2 [Bb1 C2] D2]
-  [[G2 F2] [Eb2 D2] [Bb1 C2] G1]
 >`,
   ];
 
-  // Shared bass gain pattern (16 bars, scaled by energy)
+  // G minor — flat bass (roots + neighbors)
+  const GM_BASS_FLAT = [
+    // intBand 0: whole notes on chord roots
+    `<[A1 ~ ~ ~] [D2 ~ ~ ~] [G1 ~ ~ ~] [C2 ~ ~ ~] [A1 ~ ~ ~] [D2 ~ ~ ~] [G1 ~ ~ ~] [G1 ~ ~ ~]>`,
+    // intBand 1: half notes, root and 5th
+    `<[A1 ~ Eb2 ~] [D2 ~ A2 ~] [G1 ~ D2 ~] [C2 ~ G2 ~] [A1 ~ Eb2 ~] [D2 ~ A2 ~] [G1 ~ D2 ~] [G1 ~ D2 ~]>`,
+    // intBand 2: quarter notes, small intervals around roots
+    `<[A1 Bb1 A1 G1] [D2 Eb2 D2 C2] [G1 A1 Bb1 G1] [C2 D2 C2 Bb1] [A1 G1 A1 Bb1] [D2 C2 D2 Eb2] [G1 Bb1 A1 G1] [G1 A1 G1 F#1]>`,
+  ];
+
+  // Shared bass gain pattern (16 bars, scaled by energy × gainMul)
   const BASS_GAINS = `<
   [0.45 0.35 0.35 0.30]
   [0.45 0.38 0.32 0.30]
@@ -171,13 +219,14 @@ const jazzTrioTrack = (() => {
   [0.42 0.35 0.32 0.30]
 >`;
 
-  // ── Melody note patterns: BULL_MELODY[intBand], BEAR_MELODY[intBand] ──
-  // Each is 8 bars (one pass through the chord form).
+  // ════════════════════════════════════════════════════════════
+  // MELODY PATTERNS — same structure as bass
+  // Direction from momentum, range from melodicBand
+  // ════════════════════════════════════════════════════════════
 
-  // Bullish: ascending through Bb major over bullish changes
-  //   Cm7 | F7 | Bb^7 | Eb^7 | Cm7 | F7 | Bb^7 | Bb^7
-  const BULL_MELODY = [
-    // Low: sparse, spacious ascending hints
+  // Bb major — ascending melody
+  const BB_MELODY_UP = [
+    // intBand 0: sparse ascending hints
     `<
   [C5@2 D5 ~]
   [A4@3 ~]
@@ -188,11 +237,7 @@ const jazzTrioTrack = (() => {
   [D5@2 Bb4@2]
   [Bb4@2 C5@2]
 >`,
-    // Mid: quarter-note ascending climbs through chord tones
-    //   Cm7:  7th→root→9th→b3 ascending
-    //   F7:   3rd→5th→b7 up
-    //   Bb^7: root→3rd→5th ascending
-    //   Eb^7: root→3rd→5th ascending
+    // intBand 1: quarter-note ascending climbs
     `<
   [Bb4 C5 D5 Eb5]
   [A4 C5 Eb5 ~]
@@ -203,7 +248,7 @@ const jazzTrioTrack = (() => {
   [Bb4 D5 F5 ~]
   [Bb4 C5 D5 F5]
 >`,
-    // High: eighth-note runs, chromatic approaches
+    // intBand 2: eighth-note ascending runs
     `<
   [Bb4 C5 [Db5 D5] Eb5]
   [A4 [Bb4 C5] Eb5 ~]
@@ -216,10 +261,90 @@ const jazzTrioTrack = (() => {
 >`,
   ];
 
-  // Bearish: descending through G minor over bearish changes
-  //   Am7b5 | D7 | Gm7 | Cm7 | Am7b5 | D7 | Gm7 | Gm7
-  const BEAR_MELODY = [
-    // Low: sparse, mournful descending
+  // Bb major — descending melody
+  const BB_MELODY_DOWN = [
+    // intBand 0: sparse descending
+    `<
+  [G5@2 Eb5 ~]
+  [C5@2 A4@2]
+  [F5@2 D5 ~]
+  [Bb4@2 ~ G4]
+  [Eb5@2 C5 ~]
+  [A4@2 F4@2]
+  [D5@2 Bb4@2]
+  [Bb4@2 A4@2]
+>`,
+    // intBand 1: quarter-note descending phrases
+    `<
+  [G5 Eb5 C5 Bb4]
+  [C5 A4 F4 ~]
+  [F5 D5 Bb4 A4]
+  [Bb4 G4 Eb4 ~]
+  [Eb5 C5 Bb4 G4]
+  [A4 F4 Eb4 C4]
+  [D5 Bb4 A4 F4]
+  [Bb4 A4 G4 F4]
+>`,
+    // intBand 2: eighth-note descending runs
+    `<
+  [G5 [F5 Eb5] C5 Bb4]
+  [[C5 Bb4] A4 F4 ~]
+  [F5 [Eb5 D5] Bb4 A4]
+  [[Bb4 Ab4] G4 Eb4 D4]
+  [Eb5 [D5 C5] Bb4 G4]
+  [[A4 G4] F4 Eb4 C4]
+  [D5 [C5 Bb4] A4 F4]
+  [[Bb4 A4] [G4 F4] Eb4 D4]
+>`,
+  ];
+
+  // Bb major — flat melody (meandering, no clear direction)
+  const BB_MELODY_FLAT = [
+    `<[Bb4@2 ~ ~] [A4@3 ~] [D5@2 Bb4@2] [G4@3 ~] [C5@2 ~ ~] [~ A4@2 ~] [Bb4@3 ~] [Bb4@2 ~ ~]>`,
+    `<[C5 ~ Bb4 ~] [A4 ~ C5 ~] [D5 ~ Bb4 ~] [Eb5 ~ G4 ~] [C5 ~ Eb5 ~] [A4 ~ F4 ~] [Bb4 ~ D5 ~] [Bb4 ~ A4 ~]>`,
+    `<[[C5|Eb5] ~ [D5|Bb4] ~] [A4 [C5|Bb4] ~ ~] [[Bb4|D5] ~ [F5|Bb4] ~] [[Eb5|G4] ~ ~ ~] [[C5|Bb4] ~ [Eb5|D5] ~] [~ [A4|C5] ~ ~] [[D5|Bb4] ~ [C5|A4] ~] [[Bb4|D5] ~ ~ ~]>`,
+  ];
+
+  // G minor — ascending melody
+  const GM_MELODY_UP = [
+    // intBand 0: sparse ascending
+    `<
+  [A4@2 C5 ~]
+  [D4@2 F#4@2]
+  [G4 ~ Bb4@2]
+  [C4@2 Eb4@2]
+  [A4@2 Eb5 ~]
+  [D4 ~ F#4@2]
+  [G4@2 Bb4@2]
+  [Bb4@2 D5@2]
+>`,
+    // intBand 1: quarter-note ascending phrases
+    `<
+  [A4 C5 Eb5 G5]
+  [D4 F#4 A4 ~]
+  [G4 Bb4 D5 F5]
+  [C4 Eb4 G4 Bb4]
+  [A4 Eb5 G5 A5]
+  [F#4 A4 C5 D5]
+  [G4 Bb4 D5 ~]
+  [Bb4 C5 D5 G5]
+>`,
+    // intBand 2: eighth-note ascending runs
+    `<
+  [A4 [Bb4 C5] Eb5 G5]
+  [D4 [Eb4 F#4] A4 ~]
+  [[G4 A4] Bb4 [C5 D5] F5]
+  [C4 [D4 Eb4] G4 Bb4]
+  [A4 [C5 Eb5] G5 [F5 A5]]
+  [[F#4 G4] A4 C5 [D5 Eb5]]
+  [G4 [A4 Bb4] [C5 D5] F5]
+  [[Bb4 C5] [D5 Eb5] F5 G5]
+>`,
+  ];
+
+  // G minor — descending melody
+  const GM_MELODY_DOWN = [
+    // intBand 0: sparse descending
     `<
   [G5@2 Eb5 ~]
   [F#4@3 ~]
@@ -230,11 +355,7 @@ const jazzTrioTrack = (() => {
   [Bb4@3 ~]
   [D5@2 Bb4@2]
 >`,
-    // Mid: quarter-note descending phrases through chord tones
-    //   Am7b5: b7→b5→b3→root descending arpeggio
-    //   D7:    b7→5th→3rd resolving down
-    //   Gm7:   5th→b3→root settling
-    //   Cm7:   root→b7→5th→b3 continued descent
+    // intBand 1: quarter-note descending phrases
     `<
   [G5 Eb5 C5 A4]
   [C5 A4 F#4 ~]
@@ -245,7 +366,7 @@ const jazzTrioTrack = (() => {
   [Bb4 A4 G4 F4]
   [D5 Bb4 A4 G4]
 >`,
-    // High: fast descending runs, chromatic passing tones
+    // intBand 2: eighth-note descending runs
     `<
   [G5 [F5 Eb5] C5 A4]
   [[C5 Bb4] A4 F#4 ~]
@@ -258,15 +379,111 @@ const jazzTrioTrack = (() => {
 >`,
   ];
 
-  // ── Layer code generators ──
+  // G minor — flat melody (meandering)
+  const GM_MELODY_FLAT = [
+    `<[G4@2 ~ A4] [F#4@3 ~] [Bb4@2 G4@2] [C5@3 ~] [A4@2 G4@2] [~ F#4@2 ~] [G4@3 ~] [G4@2 ~ ~]>`,
+    `<[G4 ~ A4 ~] [F#4 ~ D4 ~] [G4 ~ Bb4 ~] [C5 ~ G4 ~] [A4 ~ Eb4 ~] [F#4 ~ A4 ~] [G4 ~ D5 ~] [Bb4 ~ G4 ~]>`,
+    `<[[G4|Bb4] ~ [A4|G4] ~] [F#4 [A4|D4] ~ ~] [[G4|Bb4] ~ [D5|G4] ~] [[C5|Eb4] ~ ~ ~] [[A4|G4] ~ [Eb5|C5] ~] [~ [F#4|A4] ~ ~] [[Bb4|G4] ~ [A4|F4] ~] [[G4|Bb4] ~ ~ ~]>`,
+  ];
 
-  function bassCode(tone, intBand, energy, volatility, gainMul) {
-    const notes = tone === 1 ? BULL_BASS[intBand] : BEAR_BASS[intBand];
-    const gains = scaleGains(BASS_GAINS, energy * gainMul);
-    // Volatility muddies the bass: high volatility → lower LPF (darker, uncertain)
-    const lpf = Math.round(900 - volatility * 350); // 900 calm → 550 volatile
+  // ════════════════════════════════════════════════════════════
+  // VOICE CODE GENERATORS
+  // ════════════════════════════════════════════════════════════
+
+  // Pad — sustained ambient chords (first layer to appear)
+  function padCode(energy, volatility, gainMul) {
+    const g = (0.12 * energy * gainMul).toFixed(3);
+    const room = (0.35 + volatility * 0.3).toFixed(2);
     return `
-$: note(\`${notes}\`)
+$: chord(changes)
+  .dict("ireal")
+  .voicing()
+  .s("triangle")
+  .attack(0.8)
+  .release(3)
+  .sustain(0.5)
+  .gain(${g})
+  .lpf(${Math.round(800 + energy * 600)})
+  .room(${room})
+  .roomsize(5)
+  .orbit(1);
+`;
+  }
+
+  // Comp — rhythmic piano stabs
+  function compCode(intBand, energy, volatility, gainMul) {
+    let struct, vel, velMax;
+    if (intBand === 0) {
+      // Very sparse: hits on only 2 of 8 bars
+      struct = `<
+    [~ [~@2 x] ~ ~]
+    [~ ~ ~ ~]
+    [~ ~ ~ ~]
+    [~ ~ ~ ~]
+    [~ ~ ~ [~@2 x]]
+    [~ ~ ~ ~]
+    [~ ~ ~ ~]
+    [~ ~ ~ ~]
+  >`;
+      vel = (0.15 * energy * gainMul).toFixed(3);
+      velMax = (0.25 * energy * gainMul).toFixed(3);
+    } else if (intBand === 1) {
+      // Mid: syncopated on alternate bars
+      struct = `<
+    [~ [~@2 x] ~ [~@2 x]]
+    [~ ~ ~ ~]
+    [~ x ~ [~@2 x]]
+    [~ ~ ~ ~]
+    [~ [~@2 x] [~@2 x] ~]
+    [~ ~ ~ ~]
+    [[~@2 x] ~ ~ [~@2 x]]
+    [~ ~ ~ ~]
+  >`;
+      vel = (0.20 * energy * gainMul).toFixed(3);
+      velMax = (0.35 * energy * gainMul).toFixed(3);
+    } else {
+      // High: dense every bar
+      struct = `<
+    [~ [~@2 x] ~ [~@2 x]]
+    [[~@2 x] ~ ~ x]
+    [~ x ~ [~@2 x]]
+    [~ ~ [~@2 x] ~]
+    [~ [~@2 x] [~@2 x] ~]
+    [~ x ~ [~@2 x]]
+    [[~@2 x] ~ ~ [~@2 x]]
+    [~ [~@2 x] ~ x]
+  >`;
+      vel = (0.25 * energy * gainMul).toFixed(3);
+      velMax = (0.45 * energy * gainMul).toFixed(3);
+    }
+    // Volatility wobbles the piano — slight speed variation (detuning)
+    const spdLo = (1.0 - volatility * 0.03).toFixed(3);
+    const spdHi = (1.0 + volatility * 0.03).toFixed(3);
+    const delayFb = (0.20 + volatility * 0.20).toFixed(2);
+    return `
+$: chord(changes)
+  .dict("ireal")
+  .voicing()
+  .struct(\`${struct}\`)
+  .s("piano")
+  .clip(1)
+  .velocity(rand.range(${vel}, ${velMax}))
+  .speed(rand.range(${spdLo}, ${spdHi}))
+  .room(0.25)
+  .roomsize(3)
+  .delay(0.12)
+  .delaytime(0.18)
+  .delayfeedback(${delayFb})
+  .orbit(1);
+`;
+  }
+
+  // Bass — walking bass following momentum direction
+  function bassCode(bassNotes, energy, volatility, gainMul) {
+    const gains = scaleGains(BASS_GAINS, energy * gainMul);
+    const lpf = Math.round(900 - volatility * 350);
+    return `
+$: note(\`${bassNotes}\`)
   .s("gm_acoustic_bass")
   .clip(1)
   .gain(\`${gains}\`)
@@ -278,18 +495,17 @@ $: note(\`${notes}\`)
 `;
   }
 
-  function melodyCode(tone, intBand, melodyStrength, energy, volatility, gainMul) {
-    const notes = tone === 1 ? BULL_MELODY[intBand] : BEAR_MELODY[intBand];
-    const vel = (0.30 + melodyStrength * 0.30).toFixed(2);
-    const velMax = (0.40 + melodyStrength * 0.20).toFixed(2);
-    // Volatility increases delay feedback (uncertain = more echo/wash)
-    const delayFb = (0.15 + volatility * 0.25).toFixed(2); // 0.15 calm → 0.40 volatile
+  // Melody — piano melody following momentum direction
+  function melodyCode(melodyNotes, melodyStrength, energy, volatility, gainMul) {
+    const vel = (0.30 + melodyStrength * 0.30).toFixed(3);
+    const velMax = (0.40 + melodyStrength * 0.20).toFixed(3);
+    const delayFb = (0.15 + volatility * 0.25).toFixed(2);
     return `
-$: note(\`${notes}\`)
+$: note(\`${melodyNotes}\`)
   .s("piano")
   .clip(1)
   .velocity(rand.range(${vel}, ${velMax}))
-  .gain(${gainMul.toFixed(3)})
+  .gain(${(energy * gainMul).toFixed(3)})
   .room(0.25)
   .roomsize(3)
   .delay(0.08)
@@ -299,6 +515,7 @@ $: note(\`${notes}\`)
 `;
   }
 
+  // Ride cymbal
   function rideCode(energy, gainMul) {
     const gains = scaleGains(
       "0.25 [0.28 0.12] 0.3 [0.32 0.12]",
@@ -311,10 +528,10 @@ $: s("rd [rd@2 rd] rd [rd@2 rd]")
 `;
   }
 
+  // Hi-hat — complexity scales with intBand
   function hihatCode(intBand, energy, gainMul) {
     if (intBand === 0) {
-      // Simple 2 & 4 only
-      const g = (0.25 * energy * gainMul).toFixed(2);
+      const g = (0.25 * energy * gainMul).toFixed(3);
       return `
 $: s("[~ hh ~ hh]")
   .gain(${g})
@@ -322,7 +539,6 @@ $: s("[~ hh ~ hh]")
   .orbit(4);
 `;
     }
-    // Mid and high: full 8-bar pattern
     const gains = scaleGains(
       `<
       [~ 0.30 ~ 0.24]
@@ -353,78 +569,11 @@ $: s(\`<
 `;
   }
 
-  function compCode(intBand, energy, volatility, gainMul) {
-    let struct, vel, velMax;
-    if (intBand === 0) {
-      // Very sparse: hits on only 2 of 8 bars
-      struct = `<
-    [~ [~@2 x] ~ ~]
-    [~ ~ ~ ~]
-    [~ ~ ~ ~]
-    [~ ~ ~ ~]
-    [~ ~ ~ [~@2 x]]
-    [~ ~ ~ ~]
-    [~ ~ ~ ~]
-    [~ ~ ~ ~]
-  >`;
-      vel = (0.15 * energy * gainMul).toFixed(2);
-      velMax = (0.25 * energy * gainMul).toFixed(2);
-    } else if (intBand === 1) {
-      // Mid: syncopated on alternate bars
-      struct = `<
-    [~ [~@2 x] ~ [~@2 x]]
-    [~ ~ ~ ~]
-    [~ x ~ [~@2 x]]
-    [~ ~ ~ ~]
-    [~ [~@2 x] [~@2 x] ~]
-    [~ ~ ~ ~]
-    [[~@2 x] ~ ~ [~@2 x]]
-    [~ ~ ~ ~]
-  >`;
-      vel = (0.20 * energy * gainMul).toFixed(2);
-      velMax = (0.35 * energy * gainMul).toFixed(2);
-    } else {
-      // High: dense every bar
-      struct = `<
-    [~ [~@2 x] ~ [~@2 x]]
-    [[~@2 x] ~ ~ x]
-    [~ x ~ [~@2 x]]
-    [~ ~ [~@2 x] ~]
-    [~ [~@2 x] [~@2 x] ~]
-    [~ x ~ [~@2 x]]
-    [[~@2 x] ~ ~ [~@2 x]]
-    [~ [~@2 x] ~ x]
-  >`;
-      vel = (0.25 * energy * gainMul).toFixed(2);
-      velMax = (0.45 * energy * gainMul).toFixed(2);
-    }
-    // Volatility wobbles the piano — slight speed variation (detuning)
-    const spdLo = (1.0 - volatility * 0.03).toFixed(3); // 1.000 calm → 0.970 volatile
-    const spdHi = (1.0 + volatility * 0.03).toFixed(3); // 1.000 calm → 1.030 volatile
-    const delayFb = (0.20 + volatility * 0.20).toFixed(2); // 0.20 calm → 0.40 volatile
-    return `
-$: chord(changes)
-  .dict("ireal")
-  .voicing()
-  .struct(\`${struct}\`)
-  .s("piano")
-  .clip(1)
-  .velocity(rand.range(${vel}, ${velMax}))
-  .speed(rand.range(${spdLo}, ${spdHi}))
-  .room(0.25)
-  .roomsize(3)
-  .delay(0.12)
-  .delaytime(0.18)
-  .delayfeedback(${delayFb})
-  .orbit(1);
-`;
-  }
-
+  // Ghost snare
   function ghostSnareCode(intBand, energy, gainMul) {
-    // Busier at high intensity (less dropout)
     const dropout = intBand >= 2 ? 0.25 : 0.50;
-    const gMin = (0.05 * energy * gainMul).toFixed(2);
-    const gMax = (0.09 * energy * gainMul).toFixed(2);
+    const gMin = (0.05 * energy * gainMul).toFixed(3);
+    const gMax = (0.09 * energy * gainMul).toFixed(3);
     return `
 $: s("[~@2 sd] ~ [~@2 sd] ~")
   .gain(rand.range(${gMin}, ${gMax}))
@@ -433,14 +582,16 @@ $: s("[~@2 sd] ~ [~@2 sd] ~")
 `;
   }
 
-  function crossStickCode(gainMul) {
+  // Cross-stick
+  function crossStickCode(energy, gainMul) {
     return `
-$: s("~ ~ ~ rim").degradeBy(0.5).gain(${(0.29 * gainMul).toFixed(3)}).orbit(4);
+$: s("~ ~ ~ rim").degradeBy(0.5).gain(${(0.29 * energy * gainMul).toFixed(3)}).orbit(4);
 `;
   }
 
+  // Kick bombs
   function kickCode(energy, gainMul) {
-    const g = (0.18 * energy * gainMul).toFixed(2);
+    const g = (0.18 * energy * gainMul).toFixed(3);
     return `
 $: s(\`<
   [bd ~ ~ ~]
@@ -457,9 +608,10 @@ $: s(\`<
 `;
   }
 
-  function fillCode(gainMul) {
+  // Turnaround fill
+  function fillCode(energy, gainMul) {
     return `
-$: s("<~ ~ ~ ~ ~ ~ ~ [~ ~ [sd ~] [~ ~ sd]]>").gain(${(0.22 * gainMul).toFixed(3)}).room(0.15).orbit(4);
+$: s("<~ ~ ~ ~ ~ ~ ~ [~ ~ [sd ~] [~ ~ sd]]>").gain(${(0.22 * energy * gainMul).toFixed(3)}).room(0.15).orbit(4);
 `;
   }
 
@@ -472,11 +624,12 @@ $: s("<~ ~ ~ ~ ~ ~ ~ [~ ~ [sd ~] [~ ~ sd]]>").gain(${(0.22 * gainMul).toFixed(3)
     cpm: 30,
 
     voices: {
+      pad:        { label: "Pad",         default: 1.0 },
+      comp:       { label: "Comping",     default: 1.0 },
       bass:       { label: "Bass",        default: 1.0 },
       melody:     { label: "Melody",      default: 1.0 },
       ride:       { label: "Ride",        default: 1.0 },
       hihat:      { label: "Hi-hat",      default: 1.0 },
-      comp:       { label: "Comping",     default: 1.0 },
       ghostSnare: { label: "Ghost Snare", default: 1.0 },
       crossStick: { label: "Cross-stick", default: 1.0 },
       kick:       { label: "Kick",        default: 1.0 },
@@ -496,72 +649,113 @@ $: s("<~ ~ ~ ~ ~ ~ ~ [~ ~ [sd ~] [~ ~ sd]]>").gain(${(0.22 * gainMul).toFixed(3)
 
     evaluateCode(data) {
       const h = data.heat || 0;
-      const pm = data.price_move || 0;
-      const pmAbs = Math.abs(pm);
       const tone = data.tone !== undefined ? data.tone : 1;
       const tradeRate = data.trade_rate || 0;
       const vel = data.velocity || 0;
       const momentum = data.momentum || 0;
-      const momAbs = Math.abs(momentum);
+      const momMag = Math.abs(momentum);
       const volatility = data.volatility || 0;
+      const pm = data.price_move || 0;
+      const pmAbs = Math.abs(pm);
 
       // Quantize for cache stability
       const hQ = q(h, 0.05);
       const volQ = q(volatility, 0.1);
-      const momQ = q(momAbs, 0.1);
-      // Intensity from trading activity (separate from heat/energy)
+      const momQ = q(momentum, 0.1);
+      const momMagQ = Math.abs(momQ);
+
+      // Direction from momentum sign
+      const momDir = momMagQ < 0.1 ? 'flat' : (momQ > 0 ? 'up' : 'down');
+
+      // Intensity band from trading activity (drives rhythmic complexity)
       const rawIntensity = 0.6 * tradeRate + 0.4 * vel;
-      const intensity = Math.max(0.15, Math.min(1.0, rawIntensity));
-      const intBand = intensity < 0.33 ? 0 : intensity < 0.66 ? 1 : 2;
-      const pmDir = pmAbs < 0.05 ? 0 : pm > 0 ? 1 : -1;
-      const pmMag = q(pmAbs, 0.1);
+      const intBand = rawIntensity < 0.33 ? 0 : rawIntensity < 0.66 ? 1 : 2;
+
+      // Momentum band (drives melodic range — bigger move = wider intervals)
+      const momBand = momMagQ < 0.25 ? 0 : momMagQ < 0.55 ? 1 : 2;
+
+      // Melodic band: max of rhythm and momentum
+      // Strong trends get wide intervals even with moderate trading
+      const melodicBand = Math.max(intBand, momBand);
+
+      // Melody strength: whichever is stronger — edge-detected move or sustained momentum
+      const melodyStrength = Math.max(pmAbs, momMag * 0.7);
+      const msQ = q(melodyStrength, 0.1);
+
       const gainKey = Object.keys(this.voices)
         .map(v => this.getGain(v).toFixed(2)).join(':');
-      const key = `${tone}:${intBand}:${hQ}:${pmDir}:${pmMag}:${volQ}:${momQ}:${gainKey}`;
+      const key = `${tone}:${intBand}:${melodicBand}:${hQ}:${momDir}:${msQ}:${volQ}:${gainKey}`;
 
       if (_cachedCode && _cachedKey === key) return _cachedCode;
 
-      // Energy scales volume: 0.4 at rest → 1.0 at full heat
-      const energy = 0.4 + hQ * 0.6;
+      // Energy = heat directly, no floor. At heat 0, everything is silent.
+      const energy = hQ;
       const changes = tone === 1 ? BULLISH_CHANGES : BEARISH_CHANGES;
 
+      // Select bass pattern: tone → key, momDir → direction, melodicBand → range
+      const bassPatterns = tone === 1
+        ? (momDir === 'up' ? BB_BASS_UP : momDir === 'down' ? BB_BASS_DOWN : BB_BASS_FLAT)
+        : (momDir === 'up' ? GM_BASS_UP : momDir === 'down' ? GM_BASS_DOWN : GM_BASS_FLAT);
+      const bassNotes = bassPatterns[melodicBand];
+
+      // Select melody pattern: same axes
+      const melodyPatterns = tone === 1
+        ? (momDir === 'up' ? BB_MELODY_UP : momDir === 'down' ? BB_MELODY_DOWN : BB_MELODY_FLAT)
+        : (momDir === 'up' ? GM_MELODY_UP : momDir === 'down' ? GM_MELODY_DOWN : GM_MELODY_FLAT);
+      const melodyNotes = melodyPatterns[melodicBand];
+
+      // ── Build code ──
       let code = "setcpm(30);\n";
       code += `let changes = "${changes}";\n`;
 
-      // ── Always on: bass + ride ──
-      code += bassCode(tone, intBand, energy, volQ, this.getGain('bass'));
-      code += rideCode(energy, this.getGain('ride'));
+      // 1. Pad — sustained ambient chords (heat > 0.05)
+      code += hQ > 0.05
+        ? padCode(energy, volQ, this.getGain('pad'))
+        : '\n$: silence;\n';
 
-      // ── Hi-hat: scales with intensity ──
-      code += hihatCode(intBand, energy, this.getGain('hihat'));
+      // 2. Comp — rhythmic piano stabs (heat > 0.20)
+      code += hQ > 0.20
+        ? compCode(intBand, energy, volQ, this.getGain('comp'))
+        : '\n$: silence;\n';
 
-      // ── Comping: always on, density scales with intensity ──
-      code += compCode(intBand, energy, volQ, this.getGain('comp'));
+      // 3. Bass — walking bass (heat > 0.15)
+      code += hQ > 0.15
+        ? bassCode(bassNotes, energy, volQ, this.getGain('bass'))
+        : '\n$: silence;\n';
 
-      // ── Conditional layers: always emit $: blocks to keep positional
-      //    IDs stable (silent placeholder when inactive).  This prevents
-      //    Strudel's anonymous $: indexing from shifting when layers
-      //    appear/disappear, which would cause pattern mismatches mid-cycle.
+      // 4. Ride cymbal (heat > 0.20)
+      code += hQ > 0.20
+        ? rideCode(energy, this.getGain('ride'))
+        : '\n$: silence;\n';
 
-      // Ghost snare: mid+ intensity
-      code += intBand >= 1 ? ghostSnareCode(intBand, energy, this.getGain('ghostSnare')) : '\n$: silence;\n';
+      // 5. Hi-hat (heat > 0.30)
+      code += hQ > 0.30
+        ? hihatCode(intBand, energy, this.getGain('hihat'))
+        : '\n$: silence;\n';
 
-      // Cross-stick: mid+ intensity
-      code += intBand >= 1 ? crossStickCode(this.getGain('crossStick')) : '\n$: silence;\n';
+      // 6. Melody — during trends or active movement (heat > 0.20 AND melodyStrength > 0.05)
+      code += (hQ > 0.20 && melodyStrength > 0.05)
+        ? melodyCode(melodyNotes, melodyStrength, energy, volQ, this.getGain('melody'))
+        : '\n$: silence;\n';
 
-      // Kick bombs: high intensity only
-      code += intBand >= 2 ? kickCode(energy, this.getGain('kick')) : '\n$: silence;\n';
+      // 7. Ghost snare (intBand >= 1 AND heat > 0.40)
+      code += (intBand >= 1 && hQ > 0.40)
+        ? ghostSnareCode(intBand, energy, this.getGain('ghostSnare'))
+        : '\n$: silence;\n';
 
-      // Turnaround fill: high intensity only
-      code += intBand >= 2 ? fillCode(this.getGain('fill')) : '\n$: silence;\n';
+      // 8. Cross-stick (intBand >= 1 AND heat > 0.40)
+      code += (intBand >= 1 && hQ > 0.40)
+        ? crossStickCode(energy, this.getGain('crossStick'))
+        : '\n$: silence;\n';
 
-      // Melody: plays during active price movement OR sustained momentum.
-      // Momentum keeps the melody alive during trends even when the
-      // edge-detected price_move decays back to zero.
-      // melodyStrength combines both: whichever is stronger wins.
-      const melodyStrength = Math.max(pmAbs, momAbs * 0.7);
-      code += melodyStrength > 0.05
-        ? melodyCode(tone, intBand, melodyStrength, energy, volQ, this.getGain('melody'))
+      // 9. Kick bombs (intBand >= 2 AND heat > 0.55)
+      code += (intBand >= 2 && hQ > 0.55)
+        ? kickCode(energy, this.getGain('kick'))
+        : '\n$: silence;\n';
+
+      // 10. Turnaround fill (intBand >= 2 AND heat > 0.60)
+      code += (intBand >= 2 && hQ > 0.60)
+        ? fillCode(energy, this.getGain('fill'))
         : '\n$: silence;\n';
 
       _cachedCode = code;
@@ -569,14 +763,20 @@ $: s("<~ ~ ~ ~ ~ ~ ~ [~ ~ [sd ~] [~ ~ sd]]>").gain(${(0.22 * gainMul).toFixed(3)
       return code;
     },
 
-    onEvent(type, msg) {
+    onEvent(type, msg, data) {
       if (type === "spike") {
-        // Return code string (evaluate-mode track).
-        // Play crash once then go silent — <cr:0 ~ ~ ~> plays beat 1 only,
-        // and the next evaluate() call (3s later) drops this pattern entirely.
-        // Scale crash volume with event magnitude if available.
         const gain = (0.04 + (msg.magnitude || 0.5) * 0.04).toFixed(3);
-        return `$: s("<cr:0 ~ ~ ~>").gain(${gain}).room(0.4).orbit(4);`;
+        return `$: s("<cr:0 ~ ~ ~>").gain(${gain}).room(0.4).orbit(5);`;
+      }
+      if (type === "price_move") {
+        const dir = msg.direction || 1;
+        const mag = msg.magnitude || 0.5;
+        const gain = (0.03 + mag * 0.04).toFixed(3);
+        const tone = data.tone !== undefined ? data.tone : 1;
+        const run = tone === 1
+          ? (dir > 0 ? "[Bb4 C5 D5 F5]" : "[F5 D5 C5 Bb4]")
+          : (dir > 0 ? "[G4 Bb4 D5 F5]" : "[F5 D5 Bb4 G4]");
+        return `$: note("${run}").s("piano").clip(0.5).velocity(${(0.3 + mag * 0.3).toFixed(2)}).gain(${gain}).room(0.35).delay(0.15).delayfeedback(0.25).orbit(5);`;
       }
       return null;
     },
