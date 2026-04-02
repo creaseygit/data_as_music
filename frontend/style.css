@@ -70,6 +70,7 @@ input[type="range"]::-moz-range-thumb {
 
 .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; }
 .dot-on { background: #00ff88; box-shadow: 0 0 8px #00ff88; }
+.dot-sync { background: #ffaa00; box-shadow: 0 0 8px #ffaa00; }
 .dot-off { background: #333; }
 
 .now-playing {

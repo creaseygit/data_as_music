@@ -388,6 +388,12 @@ const audioEngine = (() => {
     }
   }
 
+  /** Reset damping so next data update snaps to target instantly.
+   *  Call after a WebSocket reconnect to avoid a 27s slide from stale values. */
+  function resetDamping() {
+    _targetData = {};
+  }
+
   function handleEvent(msg) {
     if (!playing || !currentTrackDef || !currentTrackDef.onEvent) return;
     // Queue event for next cycle boundary
@@ -441,7 +447,7 @@ const audioEngine = (() => {
 
   return {
     init, selectTrack, stop, setVolume, onMarketData,
-    handleEvent, registerTrack, resumeIfSuspended,
+    handleEvent, registerTrack, resumeIfSuspended, resetDamping,
     getTrackRegistry, getCurrentTrack, getCurrentTrackName,
     getLatestData, getTargetData, isPlaying,
   };

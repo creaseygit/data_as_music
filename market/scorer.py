@@ -13,6 +13,9 @@ class MarketScorer:
     normalised heat score between 0.0 and 1.0.
     """
 
+    # Spreads older than this (seconds) are considered stale and reset to default
+    SPREAD_STALE_SECS = 30
+
     def __init__(self):
         # price history: market_id → deque of (timestamp, price)
         self.price_history  = defaultdict(lambda: deque(maxlen=20))
@@ -20,6 +23,8 @@ class MarketScorer:
         self.trade_times    = defaultdict(lambda: deque(maxlen=500))
         # best bid/ask: market_id → (bid, ask)
         self.spreads        = defaultdict(lambda: (0.4, 0.6))
+        # timestamp of last spread update per market
+        self._spread_updated = defaultdict(float)
         # 24h volume from Gamma REST (static per fetch cycle)
         self.volumes        = defaultdict(float)
         # Adaptive trade rate: EMA of trades/min per market
@@ -36,6 +41,7 @@ class MarketScorer:
 
     def on_best_bid_ask(self, market_id: str, bid: float, ask: float):
         self.spreads[market_id] = (bid, ask)
+        self._spread_updated[market_id] = time.time()
 
     def set_volume(self, market_id: str, volume: float):
         self.volumes[market_id] = volume
@@ -69,7 +75,9 @@ class MarketScorer:
         """
         raw = self._raw_trade_rate(market_id, window)
 
-        # Update EMA baseline (~5 min half-life: alpha ≈ 0.01 at 3s intervals)
+        # Update EMA baseline (~5 min half-life: alpha ≈ 0.01 at 3s intervals).
+        # Always update when dt >= 2s so the baseline decays toward 0 during
+        # silence instead of freezing at its last value.
         now = time.time()
         dt = now - self._rate_last_t[market_id]
         if self._rate_last_t[market_id] == 0:
@@ -77,6 +85,7 @@ class MarketScorer:
             self._rate_ema[market_id] = max(raw, 0.5)
             self._rate_last_t[market_id] = now
         elif dt >= 2.0:
+            # Use larger alpha when gap is long so EMA catches up after silence
             alpha = min(1.0, dt / 300.0)  # ~5 min to converge
             self._rate_ema[market_id] += alpha * (raw - self._rate_ema[market_id])
             self._rate_ema[market_id] = max(self._rate_ema[market_id], 0.5)  # floor
@@ -91,7 +100,11 @@ class MarketScorer:
         return max(0.0, min(1.0, score))
 
     def spread_score(self, market_id: str) -> float:
-        """Tight spread = active market. Returns 0–1 (higher = tighter)."""
+        """Tight spread = active market. Returns 0–1 (higher = tighter).
+        Returns 0 if spread data is stale (no update in SPREAD_STALE_SECS)."""
+        updated = self._spread_updated.get(market_id, 0)
+        if updated and time.time() - updated > self.SPREAD_STALE_SECS:
+            return 0.0  # stale — treat as wide spread
         bid, ask = self.spreads[market_id]
         spread = ask - bid
         return max(0.0, 1.0 - (spread / 0.2))   # 0.2 spread = 0 score

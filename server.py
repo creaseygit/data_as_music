@@ -389,7 +389,12 @@ async def broadcast_loop(interval=None):
                     for evt in events:
                         await session.ws.send_json({"type": "event", **evt})
                 except (ConnectionResetError, ConnectionError):
-                    pass
+                    # Socket is dead — close it so handle_ws exits its loop
+                    # and the client's auto-reconnect kicks in
+                    try:
+                        await session.ws.close()
+                    except Exception:
+                        pass
                 except Exception as e:
                     print(f"[BROADCAST] Error for {session.client_id}: {e}", flush=True)
     except asyncio.CancelledError:

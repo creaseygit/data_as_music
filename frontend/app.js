@@ -467,6 +467,10 @@ function onWsMarketData(data) {
 }
 
 function onWsMarketInfo(market) {
+  // Server confirmed market state — upgrade status to fully connected
+  document.getElementById('ws-dot').className = 'dot dot-on';
+  document.getElementById('ws-label').textContent = 'Connected';
+
   const np = document.getElementById('np');
   if (!market) {
     np.style.display = 'none';
@@ -510,8 +514,37 @@ function onWsListeners(count) {
 }
 
 function onWsConnected() {
-  document.getElementById('ws-dot').className = 'dot dot-on';
-  document.getElementById('ws-label').textContent = 'Connected';
+  // Reset damping so first data after reconnect snaps to actual values
+  // instead of slowly sliding from stale pre-disconnect state
+  audioEngine.resetDamping();
+
+  // Re-send client state so the new server session picks up where we left off
+  const lp = livePrefix(currentEventSlug);
+  const hasMarketToRestore = !!(lp || currentMarketSlug);
+
+  if (hasMarketToRestore) {
+    // Show amber "Syncing..." until server confirms market via market_info
+    document.getElementById('ws-dot').className = 'dot dot-sync';
+    document.getElementById('ws-label').textContent = 'Syncing...';
+    if (lp) {
+      wsClient.send({ action: 'play_live', prefix: lp });
+    } else {
+      wsClient.send({ action: 'pin', slug: currentMarketSlug });
+    }
+  } else {
+    // No market to restore — connection alone is sufficient
+    document.getElementById('ws-dot').className = 'dot dot-on';
+    document.getElementById('ws-label').textContent = 'Connected';
+  }
+
+  const track = document.getElementById('track-select');
+  if (track && track.value) {
+    wsClient.send({ action: 'track', name: track.value });
+  }
+  const sensSlider = document.getElementById('sensitivity-slider');
+  if (sensSlider) {
+    wsClient.send({ action: 'sensitivity', value: parseInt(sensSlider.value) / 100 });
+  }
 }
 
 function onWsDisconnected() {
@@ -524,6 +557,11 @@ function onWsError(msg) {
   const status = document.getElementById('url-status');
   status.textContent = msg;
   status.style.color = '#ff4444';
+  // If we were syncing and the server rejected, upgrade to connected (no market)
+  if (document.getElementById('ws-label').textContent === 'Syncing...') {
+    document.getElementById('ws-dot').className = 'dot dot-on';
+    document.getElementById('ws-label').textContent = 'Connected';
+  }
 }
 
 // ── Background tab recovery ──
