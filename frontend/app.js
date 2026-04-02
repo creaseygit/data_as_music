@@ -450,6 +450,15 @@ function onWsError(msg) {
   status.style.color = '#ff4444';
 }
 
+// ── Background tab recovery ──
+// When the user switches back to this tab, resume audio if the browser
+// suspended the AudioContext and verify the WebSocket is still alive.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  audioEngine.resumeIfSuspended();
+  wsClient.ensureConnected();
+});
+
 // ── Init ──
 log('Ready. Pick a market to play, or paste a market URL.');
 wsClient.connect();

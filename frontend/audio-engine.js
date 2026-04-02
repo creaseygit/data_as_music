@@ -21,6 +21,7 @@ const audioEngine = (() => {
   let _boundaryTimer = null;     // setTimeout handle
   let _playEpoch = 0;            // AudioContext time when playback started
   let _forceNextPlay = false;    // force pattern rebuild at next boundary
+  let _wakeLockRelease = null;   // Web Lock release callback (prevents background throttling)
 
   // Track registry — populated by track files calling audioEngine.registerTrack()
   const trackRegistry = {};
@@ -148,6 +149,11 @@ const audioEngine = (() => {
       _pendingData = null;
     }
 
+    // Acquire Web Lock to prevent background tab throttling.
+    // The lock is held for the duration of playback — browsers won't
+    // aggressively throttle timers in tabs that hold Web Locks.
+    _acquireWakeLock();
+
     // Generate and play the initial pattern (force — first play after track switch)
     _lastTrackPat = null;
     _playPattern();
@@ -205,6 +211,45 @@ const audioEngine = (() => {
   // Tracks declare `cpm` (cycles per minute). We use AudioContext time +
   // the track's CPM to estimate where we are within the current cycle.
   // Data changes are deferred to the next downbeat (cycle boundary).
+
+  // ── Background tab protection ──────────────────────────────
+  // Acquire a Web Lock while playing. Browsers exempt tabs holding locks
+  // from aggressive timer throttling (the lock itself does nothing — its
+  // mere existence signals the tab is doing important work).
+
+  function _acquireWakeLock() {
+    if (_wakeLockRelease) return;  // already held
+    if (!navigator.locks) return;  // Safari <15.4
+    const controller = new AbortController();
+    navigator.locks.request('dam_audio_playing', { signal: controller.signal }, () => {
+      // Return a promise that never resolves — holds the lock until aborted
+      return new Promise(() => {});
+    }).catch(() => {});  // AbortError when we release — expected
+    _wakeLockRelease = () => controller.abort();
+    console.log('[Audio] Web Lock acquired (background throttle protection)');
+  }
+
+  function _releaseWakeLock() {
+    if (_wakeLockRelease) {
+      _wakeLockRelease();
+      _wakeLockRelease = null;
+      console.log('[Audio] Web Lock released');
+    }
+  }
+
+  /** Resume AudioContext if the browser suspended it (e.g. background tab). */
+  async function resumeIfSuspended() {
+    if (!playing || !initialized) return;
+    try {
+      const ctx = getAudioContext();
+      if (ctx.state === 'suspended') {
+        await ctx.resume();
+        console.log('[Audio] AudioContext resumed after background');
+      }
+    } catch (e) {
+      console.warn('[Audio] resume error:', e);
+    }
+  }
 
   /** Approximate milliseconds until the next cycle boundary. */
   function _msUntilNextBoundary() {
@@ -271,6 +316,7 @@ const audioEngine = (() => {
 
   function stop() {
     _cancelBoundary();
+    _releaseWakeLock();
     try { hush(); } catch (e) { console.warn('[Audio] hush error:', e); }
     // Suspend AudioContext to immediately silence reverb/delay tails
     try {
@@ -352,7 +398,7 @@ const audioEngine = (() => {
 
   return {
     init, selectTrack, stop, setVolume, onMarketData,
-    handleEvent, registerTrack,
+    handleEvent, registerTrack, resumeIfSuspended,
     getTrackRegistry, getCurrentTrack, getCurrentTrackName,
     getLatestData, isPlaying,
   };

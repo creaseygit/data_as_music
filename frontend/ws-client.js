@@ -58,5 +58,12 @@ const wsClient = (() => {
     }
   }
 
-  return { connect, send };
+  /** Re-establish connection if it dropped (e.g. after background tab). */
+  function ensureConnected() {
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+    console.log('[WS] Reconnecting after tab focus');
+    connect();
+  }
+
+  return { connect, send, ensureConnected };
 })();
