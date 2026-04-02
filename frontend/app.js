@@ -87,6 +87,8 @@ function updateHash() {
   }
   const track = document.getElementById('track-select');
   if (track && track.value) parts.push('track=' + encodeURIComponent(track.value));
+  const sensSlider = document.getElementById('sensitivity-slider');
+  if (sensSlider && sensSlider.value !== '50') parts.push('sens=' + sensSlider.value);
   // Persist active browse tab so shared links show the right category
   if (activeTab) parts.push('tab=' + encodeURIComponent(activeTab));
   const newHash = parts.length ? '#' + parts.join('&') : '';
@@ -101,6 +103,17 @@ function applyHashOnce() {
   hashApplied = true;
   const params = getHashParams();
   if (!params.market && !params.live && !params.track) return;
+
+  // Apply sensitivity before market pin so the server uses it from the first broadcast
+  if (params.sens) {
+    const pct = parseInt(params.sens);
+    if (pct >= 0 && pct <= 100) {
+      const slider = document.getElementById('sensitivity-slider');
+      if (slider) slider.value = pct;
+      document.getElementById('sensitivity-label').textContent = pct + '%';
+      wsClient.send({ action: 'sensitivity', value: pct / 100 });
+    }
+  }
 
   // Apply track selection first
   if (params.track) {
@@ -216,7 +229,20 @@ function onSensitivityChange(rawVal) {
   if (sensTimer) clearTimeout(sensTimer);
   sensTimer = setTimeout(() => {
     wsClient.send({ action: 'sensitivity', value: pct / 100 });
+    updateHash();
   }, 200);
+}
+
+// ── Share ──
+function shareUrl() {
+  updateHash();
+  navigator.clipboard.writeText(location.href).then(() => {
+    const btn = document.getElementById('share-btn');
+    const orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    btn.style.color = '#00ff88';
+    setTimeout(() => { btn.textContent = orig; btn.style.color = '#aaa'; }, 1500);
+  });
 }
 
 // ── URL play ──
