@@ -8,7 +8,7 @@ The server pushes **normalized market data** to each connected browser client vi
 | ------------- | ---------- | ------------------------------------------------------------------- |
 | `heat`        | 0.0 – 1.0  | Composite market activity (velocity, trade rate, volume, spread)   |
 | `price`       | 0.0 – 1.0  | Current price (WS bid/ask midpoint preferred, Gamma API fallback)  |
-| `price_move`  | -1.0 – 1.0 | Edge-detected rolling price change. Uses 30s window but only emits non-zero when movement is *actively increasing* or direction flips. Zero when price is flat. Signed. Normalized so raw 3¢ → magnitude 1.0 |
+| `price_move`  | -1.0 – 1.0 | Edge-detected rolling price change. Uses 30s window but only emits non-zero when movement is *actively increasing* or direction flips. Also fires on slow cumulative drift (5¢ creep since last detected move). Zero when price is truly flat. Signed. Normalized so raw 3¢ → magnitude 1.0 |
 | `momentum`    | -1.0 – 1.0 | Signed trend direction (dual-EMA, MACD-inspired). Positive = trending up, negative = trending down. Window scales with sensitivity (45s–8min). See Sensitivity section |
 | `velocity`    | 0.0 – 1.0  | Price velocity magnitude (unsigned, 5-min window)                  |
 | `trade_rate`  | 0.0 – 1.0  | Trades per minute, normalized via adaptive EMA baseline            |
@@ -65,7 +65,7 @@ The signals are designed to cover non-overlapping dimensions:
 | Signal       | Window    | Signed? | What it answers                          |
 | ------------ | --------- | ------- | ---------------------------------------- |
 | `price`      | instant   | n/a     | "Where is the market right now?"         |
-| `price_move` | 30s fixed | yes     | "Is price actively moving RIGHT NOW?"    |
+| `price_move` | 30s fixed | yes     | "Is price moving NOW?" (includes slow drift detection) |
 | `momentum`   | 45s–8min  | yes     | "What's the sustained trend direction?"  |
 | `velocity`   | 5min      | no      | "How fast is price changing (any dir)?"  |
 | `volatility` | 45s–8min  | no      | "How erratic/uncertain is the market?"   |
