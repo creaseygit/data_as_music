@@ -84,23 +84,6 @@ const audioEngine = (() => {
       console.warn('[Audio] Master gain setup failed (non-fatal):', e);
     }
 
-    // Patch decodeAudioData to silently skip 0-byte buffers.
-    // Some GM soundfont zones have empty sample data — these are padding
-    // entries that don't produce sound. The native API throws on empty
-    // buffers; intercept and return a short silent buffer instead.
-    {
-      const ctx = getAudioContext();
-      const origDecode = ctx.decodeAudioData.bind(ctx);
-      ctx.decodeAudioData = function(buffer, successCb, errorCb) {
-        if (!buffer || buffer.byteLength === 0) {
-          const silent = ctx.createBuffer(1, 1, ctx.sampleRate);
-          if (successCb) successCb(silent);
-          return Promise.resolve(silent);
-        }
-        return origDecode(buffer, successCb, errorCb);
-      };
-    }
-
     // Warm up sample buffers — Dirt-Samples index loads during prebake but
     // the actual .wav files are fetched lazily on first trigger.  Play a
     // short silent pattern that touches every drum sound we use so the
