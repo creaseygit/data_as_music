@@ -130,25 +130,25 @@ const diggingInTheMarkets = (() => {
 
     let bassPattern;
     if (tone === 1) {
-      // Bb major world
+      // Bb major world — walks span a wider range for clear direction
       if (intBand >= 1) {
-        if (momSign > 0)      bassPattern = "<[Bb1 ~ C2 ~] [C2 ~ D2 ~] [D2 ~ Eb2 ~] [Eb2 ~ F2 ~]>";
-        else if (momSign < 0) bassPattern = "<[F2 ~ Eb2 ~] [Eb2 ~ D2 ~] [D2 ~ C2 ~] [C2 ~ Bb1 ~]>";
+        if (momSign > 0)      bassPattern = "<[Bb1 ~ C2 ~] [D2 ~ Eb2 ~] [F2 ~ G2 ~] [A2 ~ Bb2 ~]>";
+        else if (momSign < 0) bassPattern = "<[Bb2 ~ A2 ~] [G2 ~ F2 ~] [Eb2 ~ D2 ~] [C2 ~ Bb1 ~]>";
         else                  bassPattern = "<[Bb1 ~ ~ ~] [G1 ~ ~ ~] [C2 ~ ~ ~] [F1 ~ ~ ~]>";
       } else {
-        if (momSign > 0)      bassPattern = "<Bb1 C2 D2 Eb2>";
-        else if (momSign < 0) bassPattern = "<F2 Eb2 D2 C2>";
+        if (momSign > 0)      bassPattern = "<Bb1 D2 F2 Bb2>";
+        else if (momSign < 0) bassPattern = "<Bb2 F2 D2 Bb1>";
         else                  bassPattern = "<Bb1 G1 C2 F1>";
       }
     } else {
-      // G minor world
+      // G minor world — walks span a wider range for clear direction
       if (intBand >= 1) {
-        if (momSign > 0)      bassPattern = "<[G1 ~ A1 ~] [A1 ~ Bb1 ~] [Bb1 ~ C2 ~] [C2 ~ D2 ~]>";
-        else if (momSign < 0) bassPattern = "<[D2 ~ C2 ~] [C2 ~ Bb1 ~] [Bb1 ~ A1 ~] [A1 ~ G1 ~]>";
+        if (momSign > 0)      bassPattern = "<[G1 ~ A1 ~] [Bb1 ~ C2 ~] [D2 ~ Eb2 ~] [F2 ~ G2 ~]>";
+        else if (momSign < 0) bassPattern = "<[G2 ~ F2 ~] [Eb2 ~ D2 ~] [C2 ~ Bb1 ~] [A1 ~ G1 ~]>";
         else                  bassPattern = "<[G1 ~ ~ ~] [Eb1 ~ ~ ~] [C2 ~ ~ ~] [D2 ~ ~ ~]>";
       } else {
-        if (momSign > 0)      bassPattern = "<G1 A1 Bb1 C2>";
-        else if (momSign < 0) bassPattern = "<D2 C2 Bb1 A1>";
+        if (momSign > 0)      bassPattern = "<G1 Bb1 D2 G2>";
+        else if (momSign < 0) bassPattern = "<G2 D2 Bb1 G1>";
         else                  bassPattern = "<G1 Eb1 C2 D2>";
       }
     }
@@ -160,19 +160,19 @@ const diggingInTheMarkets = (() => {
 
   // ── Melody: sparse pentatonic phrases with delay ──
   function melodyCode(tone, momSign, intBand, energy, volat, gainMul) {
-    const g = (0.12 * energy * gainMul).toFixed(3);
+    const g = (0.18 * energy * gainMul).toFixed(3);
     const scale = tone === 1 ? "Bb4:pentatonic" : "G4:minor pentatonic";
 
-    // Sparse phrases — lots of rests, breathing room
+    // Directional contour — each bar starts higher/lower than the last
     let melodyPattern;
     if (momSign > 0) {
       melodyPattern = intBand >= 2
-        ? "[0 ~ 2 ~] [~ 4 ~ ~] [2 ~ 4 ~] [~ 5 ~ ~]"       // ascending, moderate
-        : "[0 ~ ~ ~] [~ ~ 2 ~] [~ ~ ~ ~] [4 ~ ~ ~]";       // very sparse ascending
+        ? "[0 ~ 2 ~] [2 ~ 4 ~] [4 ~ 5 ~] [5 ~ 6 ~]"       // clear upward staircase
+        : "[0 ~ ~ ~] [~ 2 ~ ~] [~ ~ 4 ~] [~ ~ ~ 6]";       // sparse but clearly climbing
     } else if (momSign < 0) {
       melodyPattern = intBand >= 2
-        ? "[5 ~ 4 ~] [~ 2 ~ ~] [4 ~ 2 ~] [~ 0 ~ ~]"       // descending, moderate
-        : "[5 ~ ~ ~] [~ ~ 4 ~] [~ ~ ~ ~] [2 ~ ~ ~]";       // very sparse descending
+        ? "[6 ~ 5 ~] [5 ~ 4 ~] [4 ~ 2 ~] [2 ~ 0 ~]"       // clear downward staircase
+        : "[6 ~ ~ ~] [~ 5 ~ ~] [~ ~ 4 ~] [~ ~ ~ 2]";       // sparse but clearly falling
     } else {
       melodyPattern = intBand >= 2
         ? "[0|2] ~ [4|5] ~ [~|2] ~ [4|0] ~"                 // meandering
@@ -208,14 +208,14 @@ const diggingInTheMarkets = (() => {
 
     let padNotes;
     if (tone === 1) {
-      // Bb major voicings — close, intimate
-      if (momSign > 0)      padNotes = "<[Bb3,D4,F4] [C4,Eb4,G4] [D4,F4,A4] [Eb4,G4,Bb4]>";
-      else if (momSign < 0) padNotes = "<[Bb3,D4,F4] [A3,C4,Eb4] [Ab3,C4,Eb4] [G3,Bb3,D4]>";
+      // Bb major voicings — wider climb/fall for audible direction
+      if (momSign > 0)      padNotes = "<[Bb3,D4,F4] [C4,Eb4,G4] [D4,F4,Bb4] [F4,A4,C5]>";
+      else if (momSign < 0) padNotes = "<[F4,A4,C5] [D4,F4,Bb4] [Bb3,D4,F4] [G3,Bb3,D4]>";
       else                  padNotes = "<[Bb3,D4,F4] [G3,Bb3,D4] [C4,Eb4,G4] [F3,A3,C4]>";
     } else {
-      // G minor voicings
-      if (momSign > 0)      padNotes = "<[G3,Bb3,D4] [A3,C4,Eb4] [Bb3,D4,F4] [C4,Eb4,G4]>";
-      else if (momSign < 0) padNotes = "<[G3,Bb3,D4] [F3,Ab3,C4] [Eb3,G3,Bb3] [D3,F#3,A3]>";
+      // G minor voicings — wider climb/fall for audible direction
+      if (momSign > 0)      padNotes = "<[G3,Bb3,D4] [Bb3,D4,F4] [C4,Eb4,G4] [Eb4,G4,Bb4]>";
+      else if (momSign < 0) padNotes = "<[Eb4,G4,Bb4] [C4,Eb4,G4] [G3,Bb3,D4] [D3,F#3,A3]>";
       else                  padNotes = "<[G3,Bb3,D4] [Eb3,G3,Bb3] [C3,Eb3,G3] [D3,F#3,A3]>";
     }
 
