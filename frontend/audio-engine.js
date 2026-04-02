@@ -84,21 +84,39 @@ const audioEngine = (() => {
       console.warn('[Audio] Master gain setup failed (non-fatal):', e);
     }
 
-    // Debug: intercept fetch to log empty audio responses
+    // Debug: intercept decodeAudioData to catch the 0-byte buffer with stack trace
     {
-      const origFetch = window.fetch;
-      window.fetch = async function(...args) {
-        const resp = await origFetch.apply(this, args);
-        const url = typeof args[0] === 'string' ? args[0] : args[0]?.url || '';
-        // Clone response to check body without consuming it
-        if (url.match(/\.(wav|mp3|ogg|flac|sf2)(\?|$)/i) || url.includes('Dirt-Samples') || url.includes('piano') || url.includes('soundfont')) {
-          const clone = resp.clone();
-          const buf = await clone.arrayBuffer();
-          if (buf.byteLength === 0) {
-            console.error('[Audio] Empty response for:', url, 'status:', resp.status);
-          }
+      const ctx = getAudioContext();
+      const origDecode = ctx.decodeAudioData.bind(ctx);
+      ctx.decodeAudioData = function(buffer, ...args) {
+        if (!buffer || buffer.byteLength === 0) {
+          console.error('[Audio] decodeAudioData called with empty buffer. Stack:', new Error().stack);
         }
-        return resp;
+        const result = origDecode(buffer, ...args);
+        if (result && result.catch) {
+          result.catch(err => {
+            console.error('[Audio] decodeAudioData failed:', err.message,
+              'byteLength:', buffer ? buffer.byteLength : 'null',
+              'stack:', new Error().stack);
+          });
+        }
+        return result;
+      };
+
+      // Also intercept XMLHttpRequest for non-fetch audio loads
+      const origXHROpen = XMLHttpRequest.prototype.open;
+      const origXHRSend = XMLHttpRequest.prototype.send;
+      XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+        this._debugUrl = url;
+        return origXHROpen.call(this, method, url, ...rest);
+      };
+      XMLHttpRequest.prototype.send = function(...args) {
+        this.addEventListener('load', () => {
+          if (this.response instanceof ArrayBuffer && this.response.byteLength === 0) {
+            console.error('[Audio] XHR empty ArrayBuffer for:', this._debugUrl, 'status:', this.status);
+          }
+        });
+        return origXHRSend.apply(this, args);
       };
     }
 
