@@ -826,6 +826,7 @@ async def handle_about(request):
 async def handle_browse(request):
     """Browse markets by category."""
     import market.gamma as gamma_module
+    from datetime import datetime, timezone
     tag_id = request.query.get("tag_id")
     sort = request.query.get("sort", "volume")
     limit = min(int(request.query.get("limit", "10")), 50)
@@ -835,6 +836,21 @@ async def handle_browse(request):
         else:
             tag_id_int = int(tag_id) if tag_id else None
             markets = gamma_module.fetch_browse_markets(tag_id=tag_id_int, limit=limit, sort=sort)
+
+        # Drop markets whose end_date has already passed
+        now = datetime.now(timezone.utc)
+        filtered = []
+        for m in markets:
+            end = m.get("end_date")
+            if end:
+                try:
+                    end_dt = datetime.fromisoformat(end.replace("Z", "+00:00"))
+                    if end_dt < now:
+                        continue
+                except (ValueError, TypeError):
+                    pass
+            filtered.append(m)
+        markets = filtered
 
         result = []
         for m in markets:
