@@ -1,6 +1,6 @@
 // ── Digging in the Markets ────────────────────────────
-// Dusty, mellow lo-fi hip hop beats. Swung drums, Rhodes chords with jazz
-// voicings, warm sine bass, sparse pentatonic melodies, vinyl texture.
+// Dusty, mellow lo-fi hip hop beats. Swung drums, data-driven Rhodes
+// comping, warm sine bass, sparse pentatonic melodies, vinyl texture.
 // Flat keys (Bb major / G minor) for that warm lo-fi register.
 // Heat controls layer density; momentum drives melodic contour.
 // category: 'music', label: 'Digging in the Markets'
@@ -89,36 +89,53 @@ const diggingInTheMarkets = (() => {
     return code;
   }
 
-  // ── Rhodes: jazz voicings, warm — all diatonic progressions ──
-  function keysCode(tone, momSign, intBand, energy, volat, gainMul) {
+  // ── Rhodes: jazz voicings, data-driven comping ──
+  // volatility → rhythmic dropout, velocity → filter, trade_rate → density,
+  // momentum magnitude → sustain length, perlin → humanised gain
+  function keysCode(tone, momSign, momAbs, intBand, energy, vel, volat, gainMul) {
     let changes;
     if (tone === 1) {
-      // Bb major — diatonic, roots follow momentum direction
-      if (momSign > 0)      changes = "<Bb^7 Cm7 Dm7 Eb^7>";      // I→ii→iii→IV rising
-      else if (momSign < 0) changes = "<Eb^7 Dm7 Cm7 Bb^7>";      // IV→iii→ii→I falling
-      else                  changes = "<Bb^7 Gm7 Cm7 F7>";        // I→vi→ii→V turnaround
+      if (momSign > 0)      changes = "<Bb^7 Cm7 Dm7 Eb^7>";
+      else if (momSign < 0) changes = "<Eb^7 Dm7 Cm7 Bb^7>";
+      else                  changes = "<Bb^7 Gm7 Cm7 F7>";
     } else {
-      // G minor — diatonic, roots follow momentum direction
-      if (momSign > 0)      changes = "<Gm7 Bb^7 Cm7 Dm7>";       // i→III→iv→v rising
-      else if (momSign < 0) changes = "<Dm7 Cm7 Bb^7 Gm7>";       // v→iv→III→i falling
-      else                  changes = "<Gm7 Eb^7 Cm7 D7>";        // minor turnaround
+      if (momSign > 0)      changes = "<Gm7 Bb^7 Cm7 Dm7>";
+      else if (momSign < 0) changes = "<Dm7 Cm7 Bb^7 Gm7>";
+      else                  changes = "<Gm7 Eb^7 Cm7 D7>";
     }
 
-    const g = (0.20 * energy * gainMul).toFixed(3);
+    const gLo = (0.10 * energy * gainMul).toFixed(3);
+    const gHi = (0.22 * energy * gainMul).toFixed(3);
 
-    // Comping — sparse stabs with lots of space
-    const struct = intBand >= 2
-      ? "~ [~@2 x] [~ x] [~@2 x]"     // busier comping
-      : "~ [~@2 x] ~ [~@2 x]";        // classic offbeat stabs
+    // Comping rhythm driven by intensity band
+    let struct;
+    if (intBand === 0) {
+      // Sparse — one or two hits per bar, randomised placement
+      struct = "[~ x] [~ [~|x]] [~|x] ~";
+    } else if (intBand === 1) {
+      // Medium — offbeat stabs with variation
+      struct = "~ [~@2 x] [~|x] [~@2 x|~]";
+    } else {
+      // Busy — syncopated comping with fills
+      struct = "[~|x] [~@2 x] [~ x] [~@2 x|~]";
+    }
 
-    // Filter stays dark — max around 3500 Hz
-    const lpf = Math.round(2000 + energy * 1500);
+    // Volatility → dropout: volatile markets get unpredictable gaps
+    const degrade = (0.1 + volat * 0.35).toFixed(2);
+
+    // Velocity → filter warmth: faster moves = brighter Rhodes (2000–4500 Hz)
+    const lpf = Math.round(2000 + vel * 2500);
+
+    // Momentum magnitude → sustain: strong trends hold chords, flat = staccato
+    const decay = (0.15 + momAbs * 0.45).toFixed(2);
+    const sustain = (0.1 + momAbs * 0.4).toFixed(2);
 
     return `$: chord("${changes}").dict("ireal").voicing()`
       + `.struct("${struct}")`
+      + `.degradeBy(${degrade})`
       + `.s("gm_epiano1")`
-      + `.gain(${g})`
-      + `.every(5, x => x.ply(2))`
+      + `.decay(${decay}).sustain(${sustain})`
+      + `.gain(perlin.range(${gLo}, ${gHi}))`
       + `.lpf(${lpf})`
       + `.room(0.25).rsize(2.5)`
       + `.pan(0.45).orbit(1);\n`;
@@ -336,9 +353,9 @@ const diggingInTheMarkets = (() => {
         ? padCode(tone, momSign, energy, volat, this.getGain('pad'))
         : '$: silence;\n';
 
-      // Rhodes chords — core harmonic element
-      code += h > 0.15
-        ? keysCode(tone, momSign, intBand, energy, volat, this.getGain('keys'))
+      // Rhodes — comping driven by volatility, velocity, trade density
+      code += h > 0.25
+        ? keysCode(tone, momSign, Math.abs(mom), intBand, energy, vel, volat, this.getGain('keys'))
         : '$: silence;\n';
 
       // Bass — warm sine, enters before drums
