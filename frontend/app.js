@@ -403,18 +403,24 @@ function loadTrackScripts(tracks, { reload = false } = {}) {
   if (_tracksLoaded && !reload) return Promise.resolve();
   _tracksLoaded = true;
   const bust = reload ? `?v=${Date.now()}` : '';
-  return Promise.all(tracks.map(t => new Promise((resolve, reject) => {
+  return Promise.all(tracks.map(t => {
     if (reload) {
-      // Remove old script tag so the browser fetches fresh code
-      const old = document.querySelector(`script[src^="/static/tracks/${t.name}.js"]`);
-      if (old) old.remove();
+      // On reload, fetch script text and eval it — avoids const re-declaration
+      // errors that occur when re-injecting <script> tags (removing a tag from
+      // the DOM doesn't remove its const bindings from the global scope).
+      return fetch(`/static/tracks/${t.name}.js${bust}`)
+        .then(r => r.text())
+        .then(code => { (0, eval)(code); })
+        .catch(() => console.warn('[Tracks] Failed to reload:', t.name));
     }
-    const s = document.createElement('script');
-    s.src = `/static/tracks/${t.name}.js${bust}`;
-    s.onload = resolve;
-    s.onerror = () => { console.warn('[Tracks] Failed to load:', t.name); resolve(); };
-    document.head.appendChild(s);
-  })));
+    return new Promise((resolve) => {
+      const s = document.createElement('script');
+      s.src = `/static/tracks/${t.name}.js${bust}`;
+      s.onload = resolve;
+      s.onerror = () => { console.warn('[Tracks] Failed to load:', t.name); resolve(); };
+      document.head.appendChild(s);
+    });
+  }));
 }
 
 async function onWsStatus(data) {
