@@ -853,6 +853,14 @@ async def handle_donate(request):
     return web.Response(text="Donate page not found.", status=404)
 
 
+async def handle_contact(request):
+    """Serve the contact page."""
+    path = Path("frontend/contact.html")
+    if path.exists():
+        return web.FileResponse(path)
+    return web.Response(text="Contact page not found.", status=404)
+
+
 async def handle_browse(request):
     """Browse markets by category."""
     import market.gamma as gamma_module
@@ -959,6 +967,7 @@ def create_app():
     app.router.add_get("/sandbox", handle_sandbox)
     app.router.add_get("/about", handle_about)
     app.router.add_get("/donate", handle_donate)
+    app.router.add_get("/contact", handle_contact)
     app.router.add_get("/robots.txt", lambda r: web.FileResponse("frontend/robots.txt"))
     app.router.add_get("/sitemap.xml", lambda r: web.FileResponse("frontend/sitemap.xml"))
 
