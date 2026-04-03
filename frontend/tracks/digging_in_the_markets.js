@@ -159,38 +159,73 @@ const diggingInTheMarkets = (() => {
   }
 
   // ── Melody: pentatonic runs with delay ──
-  function melodyCode(tone, momSign, intBand, energy, volat, gainMul) {
+  // momAbs controls range (how far up/down the scale the melody travels)
+  // momSign controls direction, intBand controls density
+  function melodyCode(tone, momSign, momAbs, intBand, energy, volat, gainMul) {
     const g = (0.18 * energy * gainMul).toFixed(3);
     const scale = tone === 1 ? "Bb4:pentatonic" : "G4:minor pentatonic";
 
-    // Flowing runs — connected notes, not isolated stabs
+    // Momentum magnitude → melodic range
+    //   small  (< 0.35): 3 degrees — gentle rocking
+    //   medium (< 0.65): 5 degrees — clear climb/descent
+    //   large  (≥ 0.65): 7+ degrees — full sweep
+    const busy = intBand >= 2;
     let melodyPattern;
+
     if (momSign > 0) {
-      melodyPattern = intBand >= 2
-        ? "[0 1 2 ~] [2 4 5 ~] [4 5 6 ~] [5 6 7 ~]"         // running upward
-        : "[0 1 2 ~] [~ ~ ~ ~] [4 5 6 ~] [~ ~ ~ ~]";        // sparse upward runs
+      // ── Ascending: bigger momentum = higher climb ──
+      if (momAbs >= 0.65) {
+        melodyPattern = busy
+          ? "[0 1 2 ~] [2 4 5 ~] [4 5 6 ~] [5 6 7 ~]"       // full ascent
+          : "[0 1 2 ~] [~ ~ ~ ~] [4 5 6 ~] [~ ~ ~ ~]";
+      } else if (momAbs >= 0.35) {
+        melodyPattern = busy
+          ? "[0 1 2 ~] [2 3 4 ~] [3 4 5 ~] [4 3 2 ~]"       // moderate climb, settles back
+          : "[0 1 2 ~] [~ ~ ~ ~] [3 4 5 ~] [~ ~ ~ ~]";
+      } else {
+        melodyPattern = busy
+          ? "[0 1 2 ~] [1 2 3 ~] [2 3 2 ~] [1 2 3 ~]"       // gentle upward rocking
+          : "[0 1 2 ~] [~ ~ ~ ~] [2 3 2 ~] [~ ~ ~ ~]";
+      }
     } else if (momSign < 0) {
-      melodyPattern = intBand >= 2
-        ? "[7 6 5 ~] [6 5 4 ~] [5 4 2 ~] [4 2 0 ~]"         // running downward
-        : "[7 6 5 ~] [~ ~ ~ ~] [4 2 1 ~] [~ ~ ~ ~]";        // sparse downward runs
+      // ── Descending: bigger momentum = deeper fall ──
+      if (momAbs >= 0.65) {
+        melodyPattern = busy
+          ? "[7 6 5 ~] [6 5 4 ~] [5 4 2 ~] [4 2 0 ~]"       // full descent
+          : "[7 6 5 ~] [~ ~ ~ ~] [4 2 1 ~] [~ ~ ~ ~]";
+      } else if (momAbs >= 0.35) {
+        melodyPattern = busy
+          ? "[5 4 3 ~] [4 3 2 ~] [3 2 1 ~] [2 1 0 ~]"       // moderate descent
+          : "[5 4 3 ~] [~ ~ ~ ~] [2 1 0 ~] [~ ~ ~ ~]";
+      } else {
+        melodyPattern = busy
+          ? "[3 2 1 ~] [2 1 0 ~] [1 2 1 ~] [2 1 0 ~]"       // gentle downward rocking
+          : "[3 2 1 ~] [~ ~ ~ ~] [1 2 1 ~] [~ ~ ~ ~]";
+      }
     } else {
-      melodyPattern = intBand >= 2
-        ? "[0|2] ~ [4|5] ~ [~|2] ~ [4|0] ~"                 // meandering
-        : "[0|2] ~ ~ ~ [~|4] ~ ~ ~";                        // very sparse wandering
+      // ── Neutral: no trend — wander around the middle ──
+      melodyPattern = busy
+        ? "[0|2] ~ [4|5] ~ [~|2] ~ [4|0] ~"
+        : "[0|2] ~ ~ ~ [~|4] ~ ~ ~";
     }
 
     const degradeAmt = (0.15 + volat * 0.3).toFixed(2);
     const delaytime = (60 / 80 / 2).toFixed(4);  // 8th note delay
 
-    // Directional patterns: iter only (keep direction consistent)
     // Flat patterns: iter + palindrome for wandering variety
+    // Directional patterns: no iter (rotation wraps low→high, breaking contour)
     const transforms = momSign === 0
-      ? `.iter(4).palindrome()` : `.iter(4)`;
+      ? `.iter(4).palindrome()` : ``;
+
+    // Occasional octave shift in the direction of travel (not against it)
+    const embellish = momSign < 0
+      ? `.rarely(x => x.add(note(-5)))`
+      : `.rarely(x => x.add(note(5)))`;
 
     return `$: note("${melodyPattern}").scale("${scale}")`
       + transforms
       + `.degradeBy(${degradeAmt})`
-      + `.rarely(x => x.add(note(5)))`
+      + embellish
       + `.s("piano").decay(0.35).sustain(0)`
       + `.lpf(2500)`
       + `.gain(${g}).room(0.3).rsize(2.5)`
@@ -328,7 +363,7 @@ const diggingInTheMarkets = (() => {
 
       // Melody — sparse pentatonic, needs momentum or high heat
       code += (Math.abs(mom) > 0.2 || h > 0.45)
-        ? melodyCode(tone, momSign, intBand, energy, volat, this.getGain('melody'))
+        ? melodyCode(tone, momSign, Math.abs(mom), intBand, energy, volat, this.getGain('melody'))
         : '$: silence;\n';
 
       // ── 5. Cache and return ──
