@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Donate — Support dam.fm | Data as Music</title>
+<meta name="description" content="Support dam.fm — a solo dev project turning live Polymarket data into generative music. Donate via crypto to help keep the servers running.">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="Donate — Support dam.fm">
+<meta property="og:description" content="Support dam.fm — a solo dev project turning live Polymarket data into generative music. Donate via crypto to help keep the servers running.">
+<meta property="og:url" content="https://dam.fm/donate">
+<meta property="og:site_name" content="dam.fm — Data as Music">
+
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Donate — Support dam.fm">
+<meta name="twitter:description" content="Support dam.fm — a solo dev project turning live Polymarket data into generative music.">
+
+<link rel="canonical" href="https://dam.fm/donate">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎵</text></svg>">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  .donate-intro { padding: 12px 16px; line-height: 1.7; color: #ccc; }
+  .wallet-card {
+    display: flex; align-items: center; gap: 16px;
+    padding: 14px 16px; border-bottom: 1px solid #1a1a2e;
+  }
+  .wallet-card:last-child { border-bottom: none; }
+  .wallet-qr {
+    flex-shrink: 0; width: 120px; height: 120px;
+    background: #fff; border-radius: 6px; padding: 6px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .wallet-qr canvas { width: 108px !important; height: 108px !important; }
+  .wallet-info { flex: 1; min-width: 0; }
+  .wallet-name { font-size: 14px; font-weight: bold; margin-bottom: 4px; }
+  .wallet-name .network { color: #555; font-weight: normal; font-size: 12px; }
+  .wallet-addr {
+    font-size: 12px; color: #00aaff; word-break: break-all; cursor: pointer;
+    padding: 6px 8px; background: #0a0a12; border-radius: 4px; margin-top: 4px;
+    transition: background 0.15s; position: relative;
+  }
+  .wallet-addr:hover { background: #141420; }
+  .wallet-addr .copy-hint {
+    font-size: 10px; color: #555; margin-left: 6px;
+  }
+  .copied-toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: #00ff88; color: #0a0a0f; padding: 8px 18px; border-radius: 6px;
+    font-size: 13px; font-weight: bold; opacity: 0; transition: opacity 0.3s;
+    pointer-events: none; z-index: 100;
+  }
+  .copied-toast.show { opacity: 1; }
+
+  @media (max-width: 600px) {
+    .wallet-card { flex-direction: column; align-items: flex-start; gap: 10px; }
+    .wallet-qr { width: 100px; height: 100px; }
+    .wallet-qr canvas { width: 88px !important; height: 88px !important; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1><a href="/" style="color:inherit; text-decoration:none;">DATA AS MUSIC</a></h1>
+  <div class="subtitle">The Polymarket DJ</div>
+  <div class="nav-links">
+    <a href="/">Home</a>
+    <a href="/sandbox">Sandbox</a>
+    <a href="/about">About</a>
+    <a href="/donate" class="active">Donate</a>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><h2>Support dam.fm</h2></div>
+    <div class="donate-intro">
+      <p>dam.fm is built and maintained by a solo developer. Server costs, API access, and development time all come out of pocket. If you enjoy listening to the markets and want to help keep the project alive, any donation is hugely appreciated.</p>
+      <p style="margin-top:8px;">Since Polymarket is crypto-native, donations are accepted via the wallets below. Click any address to copy it.</p>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><h2>Wallet Addresses</h2></div>
+
+    <div class="wallet-card">
+      <div class="wallet-qr"><canvas id="qr-polygon"></canvas></div>
+      <div class="wallet-info">
+        <div class="wallet-name" style="color:#8247e5;">USDC <span class="network">Polygon Network</span></div>
+        <div style="font-size:11px; color:#666; margin-bottom:2px;">Polymarket's native chain — lowest friction if you trade on Polymarket</div>
+        <div class="wallet-addr" onclick="copyAddr(this)" data-addr="0x1976A4E87A6221Cbd7B17FF61c9C38Cd6e8885f2">
+          0x1976A4E87A6221Cbd7B17FF61c9C38Cd6e8885f2<span class="copy-hint">click to copy</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="wallet-card">
+      <div class="wallet-qr"><canvas id="qr-eth"></canvas></div>
+      <div class="wallet-info">
+        <div class="wallet-name" style="color:#627eea;">Ethereum <span class="network">ETH / ERC-20</span></div>
+        <div class="wallet-addr" onclick="copyAddr(this)" data-addr="0x1976A4E87A6221Cbd7B17FF61c9C38Cd6e8885f2">
+          0x1976A4E87A6221Cbd7B17FF61c9C38Cd6e8885f2<span class="copy-hint">click to copy</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="wallet-card">
+      <div class="wallet-qr"><canvas id="qr-sol"></canvas></div>
+      <div class="wallet-info">
+        <div class="wallet-name" style="color:#14f195;">Solana <span class="network">SOL / SPL</span></div>
+        <div class="wallet-addr" onclick="copyAddr(this)" data-addr="97FZwbFY8JRN6VENUG6FcsEEYN1trNkU2Dff66p3wvZR">
+          97FZwbFY8JRN6VENUG6FcsEEYN1trNkU2Dff66p3wvZR<span class="copy-hint">click to copy</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="wallet-card">
+      <div class="wallet-qr"><canvas id="qr-btc"></canvas></div>
+      <div class="wallet-info">
+        <div class="wallet-name" style="color:#f7931a;">Bitcoin <span class="network">BTC</span></div>
+        <div class="wallet-addr" onclick="copyAddr(this)" data-addr="bc1qy7jzzpaawy2l94gyt53sp5dza6pjcnu50c4npc">
+          bc1qy7jzzpaawy2l94gyt53sp5dza6pjcnu50c4npc<span class="copy-hint">click to copy</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><h2>Thank you</h2></div>
+    <div class="donate-intro">
+      <p>Every donation — no matter how small — helps cover hosting costs and keeps dam.fm free for everyone. Thank you for supporting independent, open-source creative software.</p>
+    </div>
+  </div>
+
+  <div class="donate-footer">
+    <a href="/" style="color:#555;">Listen now</a> &middot;
+    <a href="/sandbox" style="color:#555;">Sandbox & Mastering</a> &middot;
+    <a href="/about" style="color:#555;">About</a> &middot;
+    Data as Music — <a href="https://github.com/creaseygit/data_as_music" target="_blank" rel="noopener" style="color:#555;">Source Code</a> (AGPL-3.0)
+  </div>
+</div>
+
+<div class="copied-toast" id="copied-toast">Copied!</div>
+
+<!-- QR code generator (lightweight, no dependencies) -->
+<script src="/static/qrcode.min.js"></script>
+<script>
+function copyAddr(el) {
+  const addr = el.getAttribute('data-addr');
+  navigator.clipboard.writeText(addr).then(() => {
+    const toast = document.getElementById('copied-toast');
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 1500);
+  });
+}
+
+function generateQR(canvasId, text) {
+  const canvas = document.getElementById(canvasId);
+  QRCode.toCanvas(canvas, text, {
+    width: 108,
+    margin: 0,
+    color: { dark: '#000000', light: '#ffffff' }
+  });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  generateQR('qr-polygon', '0x1976A4E87A6221Cbd7B17FF61c9C38Cd6e8885f2');
+  generateQR('qr-eth', '0x1976A4E87A6221Cbd7B17FF61c9C38Cd6e8885f2');
+  generateQR('qr-sol', '97FZwbFY8JRN6VENUG6FcsEEYN1trNkU2Dff66p3wvZR');
+  generateQR('qr-btc', 'bc1qy7jzzpaawy2l94gyt53sp5dza6pjcnu50c4npc');
+});
+</script>
+</body>
+</html>
