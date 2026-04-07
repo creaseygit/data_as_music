@@ -8,9 +8,9 @@ The server pushes **normalized market data** to each connected browser client vi
 | ------------- | ---------- | ------------------------------------------------------------------- |
 | `heat`        | 0.0 – 1.0  | Composite market activity (velocity, trade rate, volume, spread)   |
 | `price`       | 0.0 – 1.0  | Current price (WS bid/ask midpoint preferred, Gamma API fallback)  |
-| `price_move`  | -1.0 – 1.0 | Edge-detected rolling price change. Uses 30s window but only emits non-zero when movement is *actively increasing* or direction flips. Also fires on slow cumulative drift (5¢ creep since last detected move). Zero when price is truly flat. Signed. Normalized so raw 3¢ → magnitude 1.0 |
+| `price_move`  | -1.0 – 1.0 | Edge-detected rolling price change. Uses 30s window but only emits non-zero when movement is *actively increasing* or direction flips. Also fires on slow cumulative drift (1.5¢+ creep since last detected move, graduated magnitude). Zero when price is truly flat. Signed. Normalized so raw 3¢ → magnitude 1.0 |
 | `momentum`    | -1.0 – 1.0 | Signed trend direction (dual-EMA, MACD-inspired). Positive = trending up, negative = trending down. Window scales with sensitivity (45s–8min). See Sensitivity section |
-| `velocity`    | 0.0 – 1.0  | Price velocity magnitude (unsigned, 5-min window)                  |
+| `velocity`    | 0.0 – 1.0  | Price velocity magnitude (unsigned, 5-min window, absolute: 10¢ move = 1.0) |
 | `trade_rate`  | 0.0 – 1.0  | Trades per minute, normalized via adaptive EMA baseline            |
 | `spread`      | 0.0 – 1.0  | Bid-ask spread, normalized (raw 0–0.3 → 0–1)                      |
 | `volatility`  | 0.0 – 1.0  | Price oscillation / uncertainty (stddev over sensitivity-scaled window). High = erratic bouncing, low = stable. See Sensitivity section |
@@ -53,6 +53,7 @@ The curve is exponential: short-period differences matter more than long ones (9
 | `spike`       | `magnitude: 0.0–1.0`               | Heat delta exceeds threshold (scaled by sensitivity) |
 | `price_move`  | `direction: 1\|-1`, `magnitude: 0.0–1.0` | Price delta exceeds threshold (scaled by sensitivity) |
 | `resolved`    | `result: 1\|-1`                     | Market resolved (1=Yes won, -1=No won) |
+| `whale`       | `direction: 1\|-1`, `magnitude: 0.0–1.0`, `size: float` | Trade size ≥ 3x rolling median (outlier detection). Magnitude: 3x=0.33, 6x=0.67, 9x+=1.0. Size is raw USDC amount. |
 
 Event **thresholds** are sensitivity-scaled (high sensitivity fires on smaller moves). Event **magnitudes** are raw — they tell the track how big the event actually was, so musicians can respond proportionally.
 

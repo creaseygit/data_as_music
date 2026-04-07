@@ -1,9 +1,11 @@
 import time
 import math
 from collections import defaultdict, deque
+import statistics
 from config import (
     WEIGHT_PRICE_VELOCITY, WEIGHT_TRADE_RATE,
-    WEIGHT_VOLUME, WEIGHT_SPREAD, MIN_TRADE_RATE
+    WEIGHT_VOLUME, WEIGHT_SPREAD, MIN_TRADE_RATE,
+    VELOCITY_MAX_MOVE
 )
 
 
@@ -30,14 +32,22 @@ class MarketScorer:
         # Adaptive trade rate: EMA of trades/min per market
         self._rate_ema      = defaultdict(float)    # smoothed baseline
         self._rate_last_t   = defaultdict(float)    # last EMA update time
+        # Trade sizes: market_id → deque of (timestamp, size)
+        self.trade_sizes    = defaultdict(lambda: deque(maxlen=200))
+        # Whale trades: market_id → deque of (timestamp, size, price, magnitude)
+        self.whale_trades   = defaultdict(lambda: deque(maxlen=20))
 
     # ── Feed methods (called by WebSocket handler) ────────
 
     def on_price_change(self, market_id: str, price: float):
         self.price_history[market_id].append((time.time(), price))
 
-    def on_trade(self, market_id: str):
-        self.trade_times[market_id].append(time.time())
+    def on_trade(self, market_id: str, size: float = 0.0, price: float = 0.0):
+        now = time.time()
+        self.trade_times[market_id].append(now)
+        if size > 0:
+            self.trade_sizes[market_id].append((now, size))
+            self._check_whale(market_id, size, price, now)
 
     def on_best_bid_ask(self, market_id: str, bid: float, ask: float):
         self.spreads[market_id] = (bid, ask)
@@ -56,7 +66,7 @@ class MarketScorer:
         if len(recent) < 2:
             return 0.0
         prices = [p for _, p in recent]
-        return min(1.0, abs(prices[-1] - prices[0]) / max(prices[0], 0.01))
+        return min(1.0, abs(prices[-1] - prices[0]) / VELOCITY_MAX_MOVE)
 
     def _raw_trade_rate(self, market_id: str, window: int = 60) -> float:
         """Raw trades per minute over last `window` seconds."""
@@ -107,11 +117,43 @@ class MarketScorer:
             return 0.0  # stale — treat as wide spread
         bid, ask = self.spreads[market_id]
         spread = ask - bid
-        return max(0.0, 1.0 - (spread / 0.2))   # 0.2 spread = 0 score
+        return max(0.0, 1.0 - (spread / 0.3))   # 0.3 spread = 0 score
 
     def volume_score(self, market_id: str, max_volume: float = 1_000_000) -> float:
         """Normalised 24h volume. Returns 0–1."""
         return min(1.0, self.volumes.get(market_id, 0) / max_volume)
+
+    def _check_whale(self, market_id: str, size: float, price: float, now: float):
+        """Detect outlier trade sizes (>= 3x rolling median)."""
+        sizes = self.trade_sizes[market_id]
+        if len(sizes) < 10:
+            return  # not enough history to judge
+        recent_sizes = [s for _, s in sizes]
+        median_size = statistics.median(recent_sizes)
+        if median_size <= 0:
+            return
+        ratio = size / median_size
+        if ratio >= 3.0:
+            # Normalize magnitude: 3x = 0.33, 6x = 0.67, 9x+ = 1.0
+            magnitude = min(1.0, ratio / 9.0)
+            self.whale_trades[market_id].append((now, size, price, magnitude))
+
+    def get_whale_trades(self, market_id: str, since: float = 0.0) -> list[dict]:
+        """Return whale trades since a given timestamp (does not clear —
+        each client tracks its own last-check timestamp)."""
+        trades = self.whale_trades[market_id]
+        result = []
+        for t, size, price, magnitude in trades:
+            if t <= since:
+                continue
+            result.append({
+                "timestamp": t,
+                "size": size,
+                "price": price,
+                "magnitude": magnitude,
+                "direction": 1 if price > 0.5 else -1,
+            })
+        return result
 
     def heat(self, market_id: str) -> float:
         """Composite heat score 0.0–1.0."""

@@ -54,7 +54,7 @@ CloudFlare → Nginx → Python aiohttp (data only) ←→ Market APIs (Polymark
 | `config.py`               | Tunable constants (API URLs, scoring weights, WS config, sensitivity defaults, event thresholds, `BROWSE_CATEGORIES`)|
 | `market/gamma.py`         | Gamma REST API client: `fetch_active_markets`, `fetch_browse_markets`, `fetch_market_by_slug`, etc.                  |
 | `market/websocket.py`     | CLOB WebSocket feed (`MarketFeed`). First message is a list (book snapshot), not a dict                              |
-| `market/scorer.py`        | Heat scoring: `price_velocity * 0.35 + trade_rate * 0.40 + volume * 0.15 + spread * 0.10`                           |
+| `market/scorer.py`        | Heat scoring: `price_velocity * 0.35 + trade_rate * 0.40 + volume * 0.15 + spread * 0.10`. Whale detection (trade size ≥ 3x rolling median) |
 | `mixer/mixer.py`          | `AutonomousDJ` — market selection via `pin_market()`, `_primary_asset()`, live finance auto-rotation                 |
 | `frontend/index.html`     | Main page HTML, loads custom Strudel bundle                                                                           |
 | `frontend/app.js`         | UI logic: browse tabs, market picker, sliders, now-playing display, dynamic track loader, ET→local time conversion for market names |

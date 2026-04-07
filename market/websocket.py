@@ -80,7 +80,11 @@ class MarketFeed:
                 self.scorer.on_price_change(
                     change["asset_id"], float(change["price"])
                 )
-                self.scorer.on_trade(change["asset_id"])
+                self.scorer.on_trade(
+                    change["asset_id"],
+                    size=float(change.get("size", 0)),
+                    price=float(change["price"])
+                )
                 # price_changes also contain best bid/ask info
                 if "best_bid" in change and "best_ask" in change:
                     self.scorer.on_best_bid_ask(
@@ -90,7 +94,11 @@ class MarketFeed:
                     )
 
         elif etype == "last_trade_price":
-            self.scorer.on_trade(msg.get("asset_id", ""))
+            self.scorer.on_trade(
+                msg.get("asset_id", ""),
+                size=float(msg.get("size", 0)),
+                price=float(msg.get("price", 0))
+            )
 
         elif etype in ("book", "tick_size_change"):
             # Book snapshots — extract best bid/ask from bids/asks arrays

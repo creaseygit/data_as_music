@@ -301,6 +301,16 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
             move_mag = min(1.0, abs_price_delta / (EVENT_PRICE_THRESHOLD * 3))
             events.append({"event": "price_move", "direction": direction, "magnitude": round(move_mag, 4)})
             session._drift_anchor = last_price  # reset anchor on event too
+        # Whale detection (outlier trade sizes)
+        whale_trades = scorer.get_whale_trades(aid, since=session._last_whale_check)
+        session._last_whale_check = time.time()
+        for wt in whale_trades:
+            events.append({
+                "event": "whale",
+                "magnitude": round(wt["magnitude"], 4),
+                "direction": wt["direction"],
+                "size": round(wt["size"], 2),
+            })
     session._prev_heat = heat
     session._prev_price = last_price
 
@@ -326,7 +336,7 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
     same_dir = (price_move_raw >= 0) == (prev_pm >= 0)
     if same_dir and abs(price_move_raw) > abs(prev_pm) + 0.01:
         price_move_n = price_move_raw          # magnitude growing → active move
-    elif not same_dir and abs(price_move_raw) > 0.05:
+    elif not same_dir and abs(price_move_raw) > 0.15:
         price_move_n = price_move_raw          # direction flipped → new move
     else:
         price_move_n = 0.0                     # flat or decaying → silence
