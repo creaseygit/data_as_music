@@ -432,10 +432,10 @@ $: note(\`${bassNotes}\`)
   }
 
   // Melody — motif-based piano melody via .scale()
-  // Pentatonic keeps melody consonant over all chord changes.
-  // The comp/bass provide diatonic harmonic richness underneath.
+  // Always Bb pentatonic — direction (ascending/descending) conveys market
+  // mood, not mode changes. Comp/bass handle harmonic shifts underneath.
   function melodyCode(tone, momSign, momMagQ, melodyStrength, energy, volatility, intBand, gainMul) {
-    const scale = tone === 1 ? "Bb4:pentatonic" : "G4:minor pentatonic";
+    const scale = "Bb4:pentatonic";
 
     // Select phrase set: direction × magnitude
     let melodyPattern;
@@ -728,7 +728,7 @@ $: s("<~ ~ ~ ~ ~ ~ ~ [~ ~ [sd ~] [~ ~ sd]]>").gain(${(0.22 * energy * gainMul).t
         const mag = msg.magnitude || 0.5;
         const gain = (0.03 + mag * 0.04).toFixed(3);
         const tone = data.tone !== undefined ? data.tone : 1;
-        const scale = tone === 1 ? "Bb4:pentatonic" : "G4:minor pentatonic";
+        const scale = "Bb4:pentatonic";
         // Seed motif — same shape as continuous melody, reinforces identity
         const run = dir > 0 ? "[0 1 2 4]" : "[4 2 1 0]";
         return `$: note("${run}").scale("${scale}").s("piano").clip(0.5).velocity(${(0.3 + mag * 0.3).toFixed(2)}).gain(${gain}).room(0.35).delay(0.15).delayfeedback(0.25).orbit(5);`;

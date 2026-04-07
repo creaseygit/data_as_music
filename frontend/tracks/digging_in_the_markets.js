@@ -312,7 +312,7 @@ const diggingInTheMarkets = (() => {
   // ── Melody: motif-based phrases with delay ──
   function melodyCode(tone, momSign, momAbs, intBand, energy, volat, gainMul) {
     const g = (0.18 * energy * gainMul).toFixed(3);
-    const scale = tone === 1 ? "Bb4:pentatonic" : "G4:minor pentatonic";
+    const scale = "Bb4:pentatonic"; // always — direction conveys mood, not mode
 
     // Select phrase set: direction × magnitude
     let melodyPattern;
@@ -501,7 +501,7 @@ const diggingInTheMarkets = (() => {
         const mag = msg.magnitude || 0.5;
         const gain = (0.02 + mag * 0.03).toFixed(3);
         const tone = data.tone !== undefined ? data.tone : 1;
-        const scale = tone === 1 ? "Bb4:pentatonic" : "G4:minor pentatonic";
+        const scale = "Bb4:pentatonic"; // always — direction conveys mood, not mode
         // Use the seed motif for events too — reinforces the melodic identity
         const run = dir > 0 ? "[0 1 2 4]" : "[4 2 1 0]";
         return `$: note("${run}").scale("${scale}")`
