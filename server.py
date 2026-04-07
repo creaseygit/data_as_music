@@ -9,6 +9,7 @@ entirely in the browser via Strudel.
     # Open http://localhost:8888
 """
 import asyncio
+import hashlib
 import json
 import re
 import sys
@@ -824,14 +825,51 @@ async def _on_market_ended():
                 pass
 
 
+# ── Static file cache-busting ─────────────────────────────
+
+def _file_hash(path: Path) -> str:
+    """Return first 8 chars of MD5 hex digest for a file."""
+    return hashlib.md5(path.read_bytes()).hexdigest()[:8]
+
+
+def _build_static_hashes() -> dict[str, str]:
+    """Compute content hashes for all frontend static files."""
+    frontend = Path("frontend")
+    hashes = {}
+    for p in frontend.rglob("*"):
+        if p.is_file() and p.suffix in (".css", ".js"):
+            rel = p.relative_to(frontend)
+            hashes[f"/static/{rel}"] = _file_hash(p)
+    return hashes
+
+
+# Computed once at startup; restart to pick up new file hashes
+_static_hashes: dict[str, str] = {}
+
+
+def _cache_bust_html(html: str) -> str:
+    """Replace /static/foo.ext with /static/foo.ext?h=<hash> in HTML."""
+    def _replace(m):
+        path = m.group(0)
+        h = _static_hashes.get(path)
+        return f"{path}?h={h}" if h else path
+    return re.sub(r'/static/[\w./-]+\.(?:css|js)', _replace, html)
+
+
+def _serve_html(path: Path, missing_msg: str):
+    """Serve an HTML file with cache-busted static URLs."""
+    if not path.exists():
+        return web.Response(text=missing_msg, status=404)
+    html = _cache_bust_html(path.read_text())
+    return web.Response(text=html, content_type="text/html")
+
+
 # ── HTTP API handlers (stateless) ─────────────────────────
 
 async def handle_index(request):
     """Serve the main page."""
-    index_path = Path("frontend/index.html")
-    if index_path.exists():
-        return web.FileResponse(index_path)
-    return web.Response(text="Frontend not found. Run from project root.", status=404)
+    return _serve_html(Path("frontend/index.html"),
+                       "Frontend not found. Run from project root.")
 
 
 async def handle_master(request):
@@ -841,34 +879,26 @@ async def handle_master(request):
 
 async def handle_sandbox(request):
     """Serve the sandbox page."""
-    path = Path("frontend/sandbox.html")
-    if path.exists():
-        return web.FileResponse(path)
-    return web.Response(text="Sandbox page not found.", status=404)
+    return _serve_html(Path("frontend/sandbox.html"),
+                       "Sandbox page not found.")
 
 
 async def handle_about(request):
     """Serve the about page."""
-    path = Path("frontend/about.html")
-    if path.exists():
-        return web.FileResponse(path)
-    return web.Response(text="About page not found.", status=404)
+    return _serve_html(Path("frontend/about.html"),
+                       "About page not found.")
 
 
 async def handle_donate(request):
     """Serve the donate page."""
-    path = Path("frontend/donate.html")
-    if path.exists():
-        return web.FileResponse(path)
-    return web.Response(text="Donate page not found.", status=404)
+    return _serve_html(Path("frontend/donate.html"),
+                       "Donate page not found.")
 
 
 async def handle_contact(request):
     """Serve the contact page."""
-    path = Path("frontend/contact.html")
-    if path.exists():
-        return web.FileResponse(path)
-    return web.Response(text="Contact page not found.", status=404)
+    return _serve_html(Path("frontend/contact.html"),
+                       "Contact page not found.")
 
 
 async def handle_browse(request):
@@ -967,6 +997,10 @@ async def on_shutdown(app):
 
 
 def create_app():
+    global _static_hashes
+    _static_hashes = _build_static_hashes()
+    print(f"[SERVER] Cache-busted {len(_static_hashes)} static files.", flush=True)
+
     app = web.Application()
     app.on_startup.append(on_startup)
     app.on_shutdown.append(on_shutdown)
