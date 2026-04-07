@@ -397,9 +397,6 @@ const jazzTrioTrack = (() => {
       vel = (0.25 * energy * gainMul).toFixed(3);
       velMax = (0.45 * energy * gainMul).toFixed(3);
     }
-    // Volatility wobbles the piano — slight speed variation (detuning)
-    const spdLo = (1.0 - volatility * 0.03).toFixed(3);
-    const spdHi = (1.0 + volatility * 0.03).toFixed(3);
     const delayFb = (0.20 + volatility * 0.20).toFixed(2);
     return `
 $: chord(changes)
@@ -409,7 +406,6 @@ $: chord(changes)
   .s("piano")
   .clip(1)
   .velocity(rand.range(${vel}, ${velMax}))
-  .speed(rand.range(${spdLo}, ${spdHi}))
   .room(0.25)
   .roomsize(3)
   .delay(0.12)
@@ -431,7 +427,6 @@ $: note(\`${bassNotes}\`)
   .lpf(${lpf})
   .hpf(60)
   .room(0.08)
-  .speed(rand.range(0.98, 1.02))
   .orbit(3);
 `;
   }
