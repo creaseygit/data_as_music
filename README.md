@@ -19,10 +19,7 @@ Every listener gets their own sensitivity curve, so the same market can sound di
 | Track | Style |
 | ----- | ----- |
 | Late Night in Bb | 8-voice jazz trio |
-| Poolside House | 7-voice relaxed house |
 | Digging in the Markets | 8-voice lo-fi hip hop with swung drums and Rhodes |
-| Oracle | Piano chords tracing the price curve |
-| Diagnostic | One sound per signal for audible data verification |
 
 Drop a new `.js` file in `frontend/tracks/` and restart — no other changes needed.
 

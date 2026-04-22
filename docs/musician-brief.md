@@ -98,35 +98,13 @@ Each listener has a **sensitivity slider** (0 – 1). You don't need to handle t
 
 This means the same market at different sensitivities will feel musically different — one listener's "momentum is high" might be another's "momentum is near zero" because they're looking at different time windows.
 
-## The Diagnostic Track
-
-There's a built-in test track called **Data Diagnostic** that plays one identifiable sound per signal. Use it to calibrate your ears:
-
-| What you hear | Where (stereo) | What signal |
-| --- | --- | --- |
-| Kick drum pulse (faster = higher) | Center | `heat` |
-| Sine drone (pitch = value) | Center | `price` |
-| Sawtooth sweep (up = positive) | Left | `momentum` |
-| Noise wash (louder = higher) | Right | `volatility` |
-| Piano arpeggio (up/down) | Left | `price_move` |
-| Hi-hat (denser = higher) | Right | `trade_rate` |
-| Chord pad (major/minor) | Center | `tone` |
-| Cowbell tick (brighter = wider) | Right | `spread` |
-| Crash cymbal | Center | `spike` event |
-| Vibraphone bell (high/low) | Center | `price_move` event |
-
-Select a live market, listen to the diagnostic track, and watch the data values update in the UI. This is the fastest way to build intuition for what the numbers sound like.
-
 ## Existing Tracks — What's Already Been Done
-
-### Oracle (alert track)
-Piano chord alert. Silent when nothing is moving. When `price_move` fires, plays ascending or descending triads — more chords for bigger moves. Momentum shifts the chord register up or down (±3 semitones). Volatility increases reverb depth — uncertain markets sound more spacey and ethereal.
 
 ### Late Night in Bb (jazz trio)
 Full jazz piano trio with two harmonic worlds: bullish (Bb major, ii-V-I-IV) and bearish (G minor, iiø-V-i-iv). `tone` switches between them. `trade_rate` + `velocity` drive the intensity band — low is sparse quarter-note walks, mid adds ghost snares and eighth-note approaches, high adds chromatic runs and kick bombs. `heat` scales overall volume. Momentum keeps the melody alive during sustained trends — it doesn't need an edge-detected move to play. Volatility makes the piano slightly detuned, increases delay feedback, and darkens the bass (lower LPF) — uncertainty makes the whole trio sound muddier and more unsettled.
 
-### Poolside House
-Relaxed daytime house (~116 BPM). Layers activate progressively with heat: pad first, then chords, bass, kick+percussion, melody, counter-melody. At rest, the track is completely silent. Bullish = C major Rhodes chords, bearish = A minor. Momentum shifts the melody register up or down and drives melody activation. Volatility fragments the patterns and deepens reverb. Price controls the global filter — higher price = brighter sound.
+### Digging in the Markets (lo-fi hip hop)
+Dusty, mellow lo-fi beats (~80 BPM). Swung drums, warm sine bass, Rhodes comping, sparse pentatonic melodies, vinyl texture. Bullish = Bb major, bearish = G minor — flat keys for that warm lo-fi register. `heat` controls layer density (sparse → full kit). `trade_rate` + `velocity` drive the intensity band: rim shots → swung 8ths → dropout 16ths. Momentum drives the melodic contour. Volatility adds reverb, detuning, and wobble. Price tints the global filter warmth.
 
 ## Tools for Tuning
 

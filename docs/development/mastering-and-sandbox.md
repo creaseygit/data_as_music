@@ -1,6 +1,6 @@
 # Mastering & Sandbox — Design Spec
 
-> **Status: Implemented.** All phases complete. Both pages are live at `/master` and `/sandbox`. Music tracks (`late_night_in_bb`, `poolside_house`) are migrated to the voice gain system. This document is the original design spec retained for reference.
+> **Status: Implemented.** All phases complete. Both pages are live at `/master` and `/sandbox`. Music tracks (`late_night_in_bb`, `digging_in_the_markets`) are migrated to the voice gain system. This document is the original design spec retained for reference.
 
 Two pages for tuning tracks and exploring their dynamic range.
 
@@ -330,7 +330,7 @@ This is a manual step for now (edit the `.js` file). A future PR-creation flow c
 
 ### What changes for existing tracks
 
-All existing music tracks (`late_night_in_bb`, `poolside_house`) need to:
+All existing music tracks (`late_night_in_bb`, `digging_in_the_markets`) need to:
 
 1. **Add `voices` object** — declare every independently-controllable voice
 2. **Add `gains` object** — empty `{}`, populated at runtime by mastering page
@@ -369,11 +369,6 @@ $: note(\`${notes}\`)
 code += bassCode(tone, intBand, energy, volQ, this.getGain('bass'));
 ```
 
-### Tracks that don't need migration
-
-- `diagnostic` — not a music track, doesn't need mastering
-- `oracle` — alert track (pattern mode), could optionally add voice support later
-
 ---
 
 ## 6. Template Track
@@ -389,7 +384,7 @@ All phases are complete:
 | Phase | Scope | Status |
 | ----- | ----- | ------ |
 | **1** | Track spec update: `voices`, `gains`, `getGain()`. `_template.js` created. | Done |
-| **2** | Migrate `late_night_in_bb` (8 voices) and `poolside_house` (7 voices) to voice spec. | Done |
+| **2** | Migrate `late_night_in_bb` (8 voices) and `digging_in_the_markets` (8 voices) to voice spec. | Done |
 | **3** | Build `/master` page (voice sliders, solo/mute, JSON export/import). | Done |
 | **4** | Build `/sandbox` page (data simulation, presets, sweeps, event triggers). | Done |
 | **5** | Cross-page navigation between main, mastering, and sandbox. | Done |

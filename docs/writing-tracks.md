@@ -338,31 +338,12 @@ note("c3 ~ e3 ~ g3").sound("sine")  // ~ = silence
 
 ## Existing Tracks
 
-### oracle.js
-Piano chord alert that fires on price moves. Uses `price_move` (edge-detected, only non-zero during active movement): magnitude sets chord count (2-5), sign sets direction (ascending=up, descending=down). Silent when price is flat. C major when bullish (tone=1), A minor when bearish (tone=0). Uses pre-defined triad chord runs via polyphonic mini-notation `[deg,deg+2,deg+4]`. **Momentum** shifts chord register up/down (uptrend = higher voicings, downtrend = lower, ±3 semitones). **Volatility** controls reverb depth (uncertainty = more spacey, ethereal). Responds to `spike` events with crash cymbal scaled by magnitude.
-
 ### late_night_in_bb.js
 Jazz piano trio with two market paradigms, 120 BPM. **Uses evaluate mode** — strudel code built dynamically with data-driven interpolation. **8 voices:** `bass`, `melody`, `ride`, `hihat`, `comp`, `ghostSnare`, `crossStick`, `kick`, `fill` — all with mastering gain support via `getGain()`. **Two paradigms driven by `tone`:** Bullish (tone=1) plays Bb major changes (Cm7→F7→BbΔ7→EbΔ7, ii-V-I-IV) with ascending bass walks and ascending melodies. Bearish (tone=0) plays G minor changes (Am7b5→D7→Gm7→Cm7, iiø-V-i-iv) with descending bass walks and descending melodies. **Intensity axis:** `trade_rate` (60%) + `velocity` (40%) compute an intensity score quantized into 3 bands (low/mid/high). Each band selects from pre-composed bass (16 bars x 6 variants), melody (8 bars x 6 variants), and percussion patterns of increasing complexity. Low: quarter-note walks, sparse comping, simple hi-hat. Mid: eighth-note approaches, ghost snares, cross-stick. High: chromatic runs, kick bombs, turnaround fills, dense comping. Heat still controls overall energy/gain scaling. **Momentum** sustains melody during trends — melody plays when `price_move` is active OR `|momentum| > 0.1`, so sustained trends keep the melody alive even after the edge-detected move decays. **Volatility** drives timbral uncertainty: piano comping gets slight detuning (`.speed(rand.range(...))`), delay feedback increases (more wash/echo), and bass LPF drops (darker, muddier tone). All layers use `.orbit()` for bus isolation. Spike events trigger crash cymbal scaled by event magnitude.
 
-### poolside_house.js
-Relaxed daytime house driven by market data, ~116 BPM (cpm 29). **Uses evaluate mode.** **7 voices:** `kick`, `chords`, `bass`, `perc`, `melody`, `counter`, `pad` — all with mastering gain support. **Layered activation by heat:** pad appears at heat 0.1, chords at 0.15, bass at 0.25, kick+percussion at 0.3, melody at 0.5 or |momentum| > 0.2, counter-melody at 0.6. At rest (heat=0), the track is completely silent. **Harmonic system:** bullish = C major changes (CΔ7→Am9→Dm9→G7), bearish = A minor (Am7→Fm9→Dm7→E7). Rhodes/EP chords use iReal voicings. **Intensity bands** (same formula as late_night_in_bb) control percussion density: band 0 = humanized shaker, band 1 = hats + claps + open hat, band 2 = dense 16th hats + euclidean rim + doubled claps. **Generative melody:** uses `iter()`, `palindrome()`, `degradeBy()`, `every(3, rev)` for non-repetitive lines. **Momentum** shifts melody register via `scaleTranspose()` and chords via `transpose()`. **Volatility** drives reverb depth, pattern degradation (fragmentation), and delay feedback. **Price** controls global filter (higher price = brighter). Spike events trigger open hat, price_move events trigger scale runs (ascending=up, descending=down), resolved events play sustained EP chord.
-
-### diagnostic.js
-System test track for audible data verification. **Not musical — diagnostic.** One dedicated sound per signal, spatially separated via pan and orbit so they don't mask each other. Toggle individual layers on/off via the `LAYERS` config object at the top of the file. Close your eyes and identify each signal by ear:
-
-| Signal | Sound | Pan | What to listen for |
-| --- | --- | --- | --- |
-| `heat` | Kick drum pulse | Center | Rate: 1 hit/cycle at 0 → 8 hits at 1 |
-| `price` | Sine drone | Center | Pitch: C3 at price=0 → C5 at price=1 |
-| `momentum` | Sawtooth + filter sweep | Left | Pitch rises with +ve momentum, drops with -ve. Filter sweeps up/down to reinforce direction |
-| `volatility` | Pink noise | Right | Narrow quiet hiss when calm → wide loud wash when volatile |
-| `price_move` | Piano arpeggio | Left | Ascending run = up, descending = down. More notes = bigger move |
-| `trade_rate` | Hi-hat | Right | 2 hits at 0 → 8 hits at 1, evenly spread |
-| `tone` | Triangle pad chord | Center | C major (tone=1) or A minor (tone=0) |
-| `spread` | Cowbell tick | Right | Filter opens with spread (muffled=tight, bright=wide) |
-| `spike` event | Crash cymbal | Center | Gain scales with event magnitude |
-| `price_move` event | Vibraphone bell | Center | High pitch = up, low = down. Gain scales with magnitude |
+### digging_in_the_markets.js
+Dusty, mellow lo-fi hip hop beats, 80 BPM (cpm 20). **Uses evaluate mode.** **8 voices:** `kick`, `snare`, `hihat`, `keys`, `bass`, `melody`, `texture`, `pad` — all with mastering gain support via `getGain()`. **Harmonic system driven by `tone`:** Bullish (tone=1) plays Bb major; bearish (tone=0) plays G minor — flat keys chosen for that warm lo-fi register. Rhodes-style keys comp with data-driven voicings. **Heat controls layer density:** sparse pulses at low heat, fuller kits and pickups at higher heat. **Intensity bands** (same `trade_rate`/`velocity` formula as `late_night_in_bb`) drive drum complexity: simple rim shots at band 0, swung 8th-note hats at band 1, dropout 16ths at band 2. **Momentum** drives melodic contour — sparse pentatonic runs that follow the trend direction. **Volatility** adds reverb depth, detuning, and wobble. **Price** tints the global filter for warmth. Vinyl texture and warm sine bass throughout. Spike events add crash; price_move events trigger melodic runs.
 
 ## Legacy References
 
-- **Sonic Pi tracks** and **earlier Strudel tracks** (`mezzanine.js`, `jazz_alerts.js`) were removed from the repo. Git history has them if needed.
+- **Sonic Pi tracks** and **earlier Strudel tracks** (`mezzanine.js`, `jazz_alerts.js`, `oracle.js`, `poolside_house.js`, `signal_berlin.js`, `diagnostic.js`) were removed from the repo. Git history has them if needed.
