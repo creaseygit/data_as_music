@@ -1027,6 +1027,11 @@ def create_app():
     if frontend_path.exists():
         app.router.add_static("/static/", path=str(frontend_path), name="static")
 
+    # Audio samples (samples/) — served to Strudel's samples() loader
+    samples_path = Path("samples")
+    if samples_path.exists():
+        app.router.add_static("/samples/", path=str(samples_path), name="samples")
+
     return app
 
 

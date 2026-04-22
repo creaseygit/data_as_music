@@ -54,6 +54,13 @@ const audioEngine = (() => {
           samples(`${CDN}/uzu-drumkit.json`, `${CDN}/uzu-drumkit/`, { prebake: true, tag: 'drum-machines' }),
           // GM soundfonts (acoustic bass, strings, brass, etc.)
           registerSoundfonts(),
+          // Local one-shot samples served from samples/ (see server.py static route).
+          // Register each alias as a dict so tracks can play them via .s("alias").
+          // URLs are relative to the page so CloudFlare/Nginx caching applies.
+          samples({
+            so_over: '/samples/so_over.mp3',
+            so_back: '/samples/so_back.mp3',
+          }),
         ]);
         // Create short aliases (rd, rim, etc.) from tidal drum machine names
         await aliasBank(`${CDN}/tidal-drum-machines-alias.json`);
@@ -121,6 +128,8 @@ const audioEngine = (() => {
         note("c2 e2 a2").sound("gm_acoustic_bass"),
         note("c4").sound("gm_epiano1"),
         note("c5").sound("gm_vibraphone").n(4),
+        // Local one-shot samples
+        sound("so_over so_back"),
       ).gain(0.001).play();
       // Wait for fetches to complete — CDN samples take 2-4s
       await new Promise(r => setTimeout(r, 5000));
