@@ -58,8 +58,12 @@ const audioEngine = (() => {
           // Register each alias as a dict so tracks can play them via .s("alias").
           // URLs are relative to the page so CloudFlare/Nginx caching applies.
           samples({
-            so_over: '/samples/so_over.mp3',
-            so_back: '/samples/so_back.mp3',
+            over:             '/samples/over.mp3',
+            so_over:          '/samples/so_over.mp3',
+            so_fucking_over:  '/samples/so_fucking_over.mp3',
+            back:             '/samples/back.mp3',
+            so_back:          '/samples/so_back.mp3',
+            so_fucking_back:  '/samples/so_fucking_back.mp3',
           }),
         ]);
         // Create short aliases (rd, rim, etc.) from tidal drum machine names
