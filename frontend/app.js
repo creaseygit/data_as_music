@@ -551,14 +551,12 @@ function _ensureStripsBuilt(container) {
 
 function _updateSignalStrips(data) {
   const priceNeedle = document.getElementById('strip-price-needle');
-  const priceTrack = document.getElementById('strip-price-track');
   const priceLabel = document.getElementById('strip-price-label');
   const toneClass = data.tone === 1 ? 'bullish' : 'bearish';
   if (priceNeedle) priceNeedle.style.left = (data.price * 100) + '%';
-  if (priceTrack) priceTrack.className = 'signal-price-track ' + toneClass;
   if (priceLabel) {
     priceLabel.className = 'signal-price-label ' + toneClass;
-    priceLabel.textContent = (data.price * 100).toFixed(0) + '% ' + (data.tone === 1 ? 'MAJ' : 'MIN');
+    priceLabel.textContent = (data.price * 100).toFixed(0) + '%';
   }
 
   for (const id of ['price_move', 'momentum']) {

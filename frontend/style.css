@@ -186,13 +186,6 @@ input[type="range"]::-moz-range-thumb {
   border: 1px solid #1a1a2e;
   border-radius: 2px;
   overflow: visible;
-  transition: background 0.6s ease;
-}
-.signal-price-track.bullish {
-  background: linear-gradient(to right, #0a0a12 0%, #0a0a12 45%, #00ff8822 100%);
-}
-.signal-price-track.bearish {
-  background: linear-gradient(to right, #ff664422 0%, #0a0a12 55%, #0a0a12 100%);
 }
 .signal-price-needle {
   position: absolute;
