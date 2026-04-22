@@ -16,6 +16,8 @@ The server pushes **normalized market data** to each connected browser client vi
 | `volatility`  | 0.0 – 1.0  | Price oscillation / uncertainty (stddev over sensitivity-scaled window). High = erratic bouncing, low = stable. See Sensitivity section |
 | `tone`        | 0 or 1     | 1 = major (price > 0.55), 0 = minor (price < 0.45), with hysteresis |
 | `sensitivity` | 0.0 – 1.0  | Client's sensitivity setting (0=low, 1=high). Optional for tracks  |
+| `window_seconds` | float (s) | Target window for the sensitivity-scaled signals (45s → 480s). Primarily for UI visualisation. |
+| `window_fill`    | 0.0 – 1.0 | Fraction of the target window actually backed by buffered history. Grows from 0 to 1 over up to 8 min after a market switch. Used for the UI warmup indicator. |
 
 ## How Sensitivity Works
 

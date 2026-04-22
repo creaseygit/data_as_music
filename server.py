@@ -365,6 +365,13 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
         # Suppress events during warmup — they'd be noise
         events = []
 
+    # Window metadata for client visualisation: target window for the
+    # sensitivity-scaled signals, and how much of that window is actually
+    # backed by buffered history (fills from 0→1 over up to 8 min after
+    # a market switch at low sensitivity).
+    window_seconds = sens_window * DATA_PUSH_INTERVAL
+    window_fill = min(1.0, len(session._price_history) / sens_window) if sens_window > 0 else 1.0
+
     data = {
         "heat": round(heat_n, 4),
         "price": round(price_n, 4),
@@ -376,6 +383,8 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
         "volatility": round(volatility_n, 4),
         "tone": tone,
         "sensitivity": round(session.sensitivity, 4),
+        "window_seconds": window_seconds,
+        "window_fill": round(window_fill, 4),
     }
     return data, events
 

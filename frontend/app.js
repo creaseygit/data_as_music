@@ -226,6 +226,18 @@ let sensTimer = null;
 function onSensitivityChange(rawVal) {
   const pct = parseInt(rawVal);
   document.getElementById('sensitivity-label').textContent = pct + '%';
+  // Immediate visual feedback for the signal strips — recompute the
+  // sensitivity-dependent overlay (window labels, raw-value ticks) from
+  // cached data so the user sees the slider "take effect" before the
+  // next server push (up to 3s away).
+  if (_lastSignalData) {
+    const sens = pct / 100;
+    _updateSensitivityOverlay({
+      ..._lastSignalData,
+      sensitivity: sens,
+      window_seconds: _computeWindowSeconds(sens),
+    });
+  }
   if (sensTimer) clearTimeout(sensTimer);
   sensTimer = setTimeout(() => {
     wsClient.send({ action: 'sensitivity', value: pct / 100 });
@@ -459,8 +471,150 @@ async function onWsStatus(data) {
   applyHashOnce();
 }
 
+// ── Signal strips: visual state of signals + sensitivity + warmup ──
+// Activity signals get a raw-value tick (where the bar would read at
+// neutral sensitivity). Window-scaled signals get an indicator showing
+// the target window and how much of it is actually buffered — visualises
+// the up-to-8-minute warmup as the fill grows toward the target.
+const _STRIP_DEFS = [
+  { id: 'price',      label: 'Price',       type: 'price' },
+  { id: 'price_move', label: 'Price Move',  type: 'signed',   hasWindow: true },
+  { id: 'momentum',   label: 'Momentum',    type: 'signed',   hasWindow: true },
+  { id: 'volatility', label: 'Volatility',  type: 'activity', hasWindow: true },
+  { id: 'divider' },
+  { id: 'heat',       label: 'Heat',        type: 'activity', hasRawTick: true },
+  { id: 'velocity',   label: 'Velocity',    type: 'activity', hasRawTick: true },
+  { id: 'trade_rate', label: 'Trade Rate',  type: 'activity', hasRawTick: true },
+  { id: 'spread',     label: 'Spread',      type: 'activity', hasRawTick: true },
+];
+
+let _stripsBuiltForSlug = null;
+let _lastSignalData = null;
+
+function _fmtWindow(seconds) {
+  if (seconds == null) return '—';
+  if (seconds < 60) return Math.round(seconds) + 's';
+  const m = seconds / 60;
+  return (m >= 10 ? Math.round(m) : m.toFixed(1)) + 'm';
+}
+// Mirror of server _sensitivity_window — for live slider feedback
+function _computeWindowSeconds(sens) {
+  const entries = Math.max(4, Math.floor(160 * Math.pow(15 / 160, sens)));
+  return entries * 3;
+}
+// Mirror of server _sensitivity_exponent
+function _sensExponent(s) { return Math.pow(4, 1 - 2 * s); }
+// Invert the power curve: given the shaped value the bar displays, find
+// what the raw value must have been. The gap between tick and bar end IS
+// the sensitivity effect made visible.
+function _rawFromShaped(shaped, sens) {
+  if (shaped <= 0) return 0;
+  return Math.pow(shaped, 1 / _sensExponent(sens));
+}
+
+function _ensureStripsBuilt(container) {
+  if (_stripsBuiltForSlug === currentMarketSlug) return;
+  _stripsBuiltForSlug = currentMarketSlug;
+  container.innerHTML = _STRIP_DEFS.map(d => {
+    if (d.id === 'divider') return '<div class="signal-divider"></div>';
+    const label = '<span class="signal-label">' + d.label + '</span>';
+    if (d.type === 'price') {
+      return '<div class="signal-strip" id="strip-price">'
+        + label
+        + '<div class="signal-price-track" id="strip-price-track">'
+        +   '<div class="signal-price-needle" id="strip-price-needle" style="left:50%"></div>'
+        + '</div>'
+        + '<div class="signal-price-label" id="strip-price-label">—</div>'
+        + '</div>';
+    }
+    const winHtml = d.hasWindow
+      ? '<div class="signal-window">'
+        +   '<div class="signal-window-bar"><div class="signal-window-fill" id="win-fill-' + d.id + '"></div></div>'
+        +   '<span class="signal-window-label" id="win-label-' + d.id + '">—</span>'
+        + '</div>'
+      : '';
+    const cls = d.hasWindow ? 'signal-strip' : 'signal-strip no-window';
+    let bar;
+    if (d.type === 'signed') {
+      bar = '<div class="signal-bar signal-bar-signed">'
+        +   '<div class="signal-fill-signed" id="fill-' + d.id + '"></div>'
+        + '</div>';
+    } else {
+      bar = '<div class="signal-bar">'
+        +   '<div class="signal-fill" id="fill-' + d.id + '"></div>'
+        +   (d.hasRawTick ? '<div class="signal-raw-tick" id="raw-' + d.id + '" style="left:0%"></div>' : '')
+        + '</div>';
+    }
+    return '<div class="' + cls + '" id="strip-' + d.id + '">' + label + bar + winHtml + '</div>';
+  }).join('');
+}
+
+function _updateSignalStrips(data) {
+  const priceNeedle = document.getElementById('strip-price-needle');
+  const priceTrack = document.getElementById('strip-price-track');
+  const priceLabel = document.getElementById('strip-price-label');
+  const toneClass = data.tone === 1 ? 'bullish' : 'bearish';
+  if (priceNeedle) priceNeedle.style.left = (data.price * 100) + '%';
+  if (priceTrack) priceTrack.className = 'signal-price-track ' + toneClass;
+  if (priceLabel) {
+    priceLabel.className = 'signal-price-label ' + toneClass;
+    priceLabel.textContent = (data.price * 100).toFixed(0) + '% ' + (data.tone === 1 ? 'MAJ' : 'MIN');
+  }
+
+  for (const id of ['price_move', 'momentum']) {
+    const fill = document.getElementById('fill-' + id);
+    if (!fill) continue;
+    const v = data[id] ?? 0;
+    const mag = Math.min(1, Math.abs(v)) * 50;
+    if (v >= 0) {
+      fill.style.left = '50%';
+      fill.style.width = mag + '%';
+      fill.classList.remove('negative');
+    } else {
+      fill.style.left = (50 - mag) + '%';
+      fill.style.width = mag + '%';
+      fill.classList.add('negative');
+    }
+  }
+
+  for (const id of ['volatility', 'heat', 'velocity', 'trade_rate', 'spread']) {
+    const fill = document.getElementById('fill-' + id);
+    if (fill) fill.style.width = (Math.max(0, Math.min(1, data[id] ?? 0)) * 100) + '%';
+  }
+
+  _updateSensitivityOverlay(data);
+}
+
+function _updateSensitivityOverlay(data) {
+  const sens = data.sensitivity ?? 0.5;
+  const windowSec = data.window_seconds;
+  const windowFill = data.window_fill ?? 1;
+  const winLabel = _fmtWindow(windowSec);
+  for (const id of ['price_move', 'momentum', 'volatility']) {
+    const lab = document.getElementById('win-label-' + id);
+    const fil = document.getElementById('win-fill-' + id);
+    if (lab) lab.textContent = winLabel;
+    if (fil) fil.style.width = (windowFill * 100) + '%';
+  }
+  for (const id of ['heat', 'velocity', 'trade_rate', 'spread']) {
+    const tick = document.getElementById('raw-' + id);
+    if (!tick) continue;
+    const raw = _rawFromShaped(data[id] ?? 0, sens);
+    tick.style.left = (Math.max(0, Math.min(1, raw)) * 100) + '%';
+  }
+}
+
+function _flashStrip(id) {
+  const el = document.getElementById('strip-' + id);
+  if (!el) return;
+  el.classList.remove('flash');
+  // Force reflow so the animation restarts if the same strip re-flashes
+  void el.offsetWidth;
+  el.classList.add('flash');
+  setTimeout(() => el.classList.remove('flash'), 700);
+}
+
 function onWsMarketData(data) {
-  // Update now-playing display
   const np = document.getElementById('np');
   if (!np || np.style.display === 'none') return;
 
@@ -468,17 +622,14 @@ function onWsMarketData(data) {
   const npData = document.getElementById('np-data');
   if (!mood || !npData) return;
 
-  const pct = (data.price * 100).toFixed(1);
   const toneStr = data.tone === 1 ? 'bullish' : 'bearish';
-  mood.textContent = toneStr.toUpperCase() + '  ' + pct + '%';
+  mood.textContent = toneStr.toUpperCase() + '  ' + (data.price * 100).toFixed(1) + '%';
   mood.className = 'np-mood ' + toneStr;
 
-  npData.innerHTML = [
-    ['HEAT', data.heat], ['PRICE', data.price], ['VELOCITY', data.velocity],
-    ['TRADE RATE', data.trade_rate], ['SPREAD', data.spread], ['TONE', data.tone ? 'MAJ' : 'MIN']
-  ].map(([l, v]) => '<div class="data-cell"><div class="lbl">' + l + '</div><div class="val">' + v + '</div></div>').join('');
+  _ensureStripsBuilt(npData);
+  _updateSignalStrips(data);
+  _lastSignalData = data;
 
-  // Feed data to audio engine
   if (audioRunning) {
     audioEngine.onMarketData(data);
   }
@@ -521,9 +672,14 @@ function onWsEvent(msg) {
   if (audioRunning) {
     audioEngine.handleEvent(msg);
   }
-  if (msg.event === 'spike') log('Event: heat spike');
-  if (msg.event === 'price_move') log('Event: price ' + (msg.direction > 0 ? 'up' : 'down'));
-  if (msg.event === 'resolved') log('Event: market resolved (' + (msg.result > 0 ? 'Yes' : 'No') + ')');
+  if (msg.event === 'spike') { log('Event: heat spike'); _flashStrip('heat'); }
+  if (msg.event === 'price_move') {
+    log('Event: price ' + (msg.direction > 0 ? 'up' : 'down'));
+    _flashStrip('price_move');
+    _flashStrip('price');
+  }
+  if (msg.event === 'whale') { log('Event: whale trade'); _flashStrip('heat'); _flashStrip('price'); }
+  if (msg.event === 'resolved') { log('Event: market resolved (' + (msg.result > 0 ? 'Yes' : 'No') + ')'); _flashStrip('price'); }
 }
 
 function onWsListeners(count) {

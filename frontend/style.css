@@ -85,10 +85,138 @@ input[type="range"]::-moz-range-thumb {
 .np-mood.bullish { color: #00ff88; }
 .np-mood.bearish { color: #ff6644; }
 
-.data-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; }
-.data-cell { background: #0a0a12; padding: 8px; border-radius: 4px; text-align: center; }
-.data-cell .lbl { font-size: 10px; color: #555; text-transform: uppercase; }
-.data-cell .val { font-size: 18px; color: #00aaff; }
+/* Signal strips — visual state of the six data signals + price/tone */
+.signal-strips { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.signal-strip {
+  display: grid;
+  grid-template-columns: 86px 1fr 96px;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 4px;
+  border-radius: 3px;
+}
+.signal-strip.no-window { grid-template-columns: 86px 1fr; }
+.signal-label {
+  font-size: 10px;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-variant-numeric: tabular-nums;
+}
+.signal-bar {
+  position: relative;
+  height: 10px;
+  background: #0a0a12;
+  border: 1px solid #1a1a2e;
+  border-radius: 2px;
+  overflow: visible;
+}
+.signal-fill {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  background: #00aaff;
+  width: 0%;
+  transition: width 0.5s ease;
+  border-radius: 1px 0 0 1px;
+}
+/* Signed bar: zero line at 50%, fill grows left or right */
+.signal-bar-signed::before {
+  content: '';
+  position: absolute;
+  left: 50%; top: -2px; bottom: -2px;
+  width: 1px;
+  background: #333;
+}
+.signal-fill-signed {
+  position: absolute;
+  top: 0; bottom: 0;
+  left: 50%;
+  width: 0%;
+  background: #00ff88;
+  transition: left 0.5s ease, width 0.5s ease, background 0.2s ease;
+}
+.signal-fill-signed.negative { background: #ff6644; }
+/* Raw-value tick — ghost marker showing where the bar would land at neutral sensitivity.
+   The gap between tick and bar end is the power-curve effect made visible. */
+.signal-raw-tick {
+  position: absolute;
+  top: -2px; bottom: -2px;
+  width: 1px;
+  background: #ff9900;
+  opacity: 0.55;
+  transition: left 0.5s ease;
+  pointer-events: none;
+}
+/* Window indicator — target window length + filled portion from buffer */
+.signal-window {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.signal-window-bar {
+  position: relative;
+  flex: 1;
+  max-width: 48px;
+  height: 4px;
+  background: transparent;
+  border: 1px solid #333;
+  border-radius: 1px;
+}
+.signal-window-fill {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  background: #ff9900;
+  width: 0%;
+  transition: width 1.0s linear;
+}
+.signal-window-label {
+  font-size: 9px;
+  color: #888;
+  font-variant-numeric: tabular-nums;
+  min-width: 38px;
+  text-align: right;
+  letter-spacing: 0.3px;
+}
+/* Price strip: needle marker on a tone-tinted gradient track */
+.signal-price-track {
+  position: relative;
+  height: 10px;
+  background: #0a0a12;
+  border: 1px solid #1a1a2e;
+  border-radius: 2px;
+  overflow: visible;
+  transition: background 0.6s ease;
+}
+.signal-price-track.bullish {
+  background: linear-gradient(to right, #0a0a12 0%, #0a0a12 45%, #00ff8822 100%);
+}
+.signal-price-track.bearish {
+  background: linear-gradient(to right, #ff664422 0%, #0a0a12 55%, #0a0a12 100%);
+}
+.signal-price-needle {
+  position: absolute;
+  top: -3px; bottom: -3px;
+  width: 2px;
+  background: #fff;
+  box-shadow: 0 0 4px rgba(255,255,255,0.5);
+  transition: left 0.5s ease;
+}
+.signal-price-label {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.signal-price-label.bullish { color: #00ff88; }
+.signal-price-label.bearish { color: #ff6644; }
+/* Event flash — brief amber illumination */
+@keyframes signal-flash {
+  0%   { background: rgba(255,153,0,0.30); }
+  100% { background: transparent; }
+}
+.signal-strip.flash { animation: signal-flash 0.7s ease-out; }
+/* Group divider */
+.signal-divider { border-top: 1px solid #1a1a2e; margin: 2px 2px; }
 
 .url-row { display: flex; gap: 8px; margin-bottom: 12px; }
 .url-row input {
@@ -168,8 +296,11 @@ input[type="range"]::-moz-range-thumb {
     width: 100%;
   }
 
-  /* Now playing data grid: 2 columns on mobile */
-  .data-grid { grid-template-columns: repeat(2, 1fr); }
+  /* Signal strips: tighter columns on mobile */
+  .signal-strip { grid-template-columns: 70px 1fr 78px; gap: 8px; }
+  .signal-strip.no-window { grid-template-columns: 70px 1fr; }
+  .signal-window-bar { max-width: 36px; }
+  .signal-window-label { min-width: 32px; font-size: 9px; }
 
   /* URL row: stack on very small screens */
   .url-row { flex-direction: column; }
