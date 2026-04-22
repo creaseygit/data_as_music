@@ -103,7 +103,7 @@ The `pattern(data)` or `evaluateCode(data)` method receives these values every 3
   price: 0.0-1.0,        // Current market price (0=No, 1=Yes)
   price_move: -1.0-1.0,  // "Is price moving RIGHT NOW?" — edge-detected, window 45s–8min (scales with sensitivity), saturates at √window-scaled max (~3¢ at 30s, ~12¢ at 8min)
   momentum: -1.0-1.0,    // "What's the trend?" — positive=uptrend, negative=downtrend (sensitivity-scaled window)
-  velocity: 0.0-1.0,     // Speed of price change (unsigned, 5-min, absolute: 10¢=1.0)
+  velocity: 0.0-1.0,     // Price excursion over the sens-scaled window (unsigned, max−min, 10¢=1.0)
 
   // ── Character ──
   volatility: 0.0-1.0,   // Market uncertainty — high=erratic bouncing, low=calm
@@ -137,8 +137,8 @@ The `pattern(data)` or `evaluateCode(data)` method receives these values every 3
 
 The user's **sensitivity slider** controls how reactive the music is. You don't need to handle this — it's pre-applied before your track receives data:
 
-- **Activity signals** (`heat`, `velocity`, `trade_rate`, `spread`, `price_move`): amplitude is scaled — high sensitivity inflates small values, low sensitivity crushes them.
-- **Trend signals** (`momentum`, `volatility`): the analysis **window length** changes — high sensitivity = short window (reactive, catches quick moves), low sensitivity = long window (smooth, only sustained trends). This is like switching between short and long moving averages on a trading chart.
+- **Activity signals** (`heat`, `trade_rate`, `spread`): amplitude is scaled — high sensitivity inflates small values, low sensitivity crushes them.
+- **Window signals** (`price_move`, `momentum`, `velocity`, `volatility`): the analysis **window length** changes — high sensitivity = short window (reactive, catches quick moves), low sensitivity = long window (smooth, only sustained trends). This is like switching between short and long moving averages on a trading chart.
 
 ## Events
 

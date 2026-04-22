@@ -39,9 +39,9 @@ CloudFlare → Nginx → Python aiohttp (data only) ←→ Market APIs (Polymark
 
 1. `market/gamma.py` — REST client fetches markets by volume, category, slug, or live finance pattern
 2. `market/websocket.py` — WebSocket subscribes to asset IDs, receives price changes/trades/book updates
-3. `market/scorer.py` — `MarketScorer` computes heat score (0-1) from price velocity, trade rate, volume, spread
+3. `market/scorer.py` — `MarketScorer` maintains per-market smoothed mid time series (3-sample rolling median at ingest) and computes heat score (0-1) from price velocity, trade rate, volume, spread
 4. `mixer/mixer.py` — `AutonomousDJ` manages market list, live finance auto-rotation. Events dispatched via async callback (no OSC)
-5. `server.py` `broadcast_loop` — Per-client: normalizes raw data to 0–1, applies sensitivity (power curve for activity metrics, window-length scaling for momentum/volatility), detects events with magnitudes, pushes JSON via WebSocket every 3s
+5. `server.py` `broadcast_loop` — Per tick: samples mid once per watched market via `scorer.sample_mid()`, then per-client normalizes to 0–1, applies sensitivity (power curve for `heat`/`trade_rate`/`spread`, window-length scaling for `price_move`/`momentum`/`velocity`/`volatility`), detects events with magnitudes, pushes JSON via WebSocket every 3s
 6. `frontend/audio-engine.js` — Strudel bridge: init, track lifecycle, data→pattern routing. Two track modes: `evaluateCode(data)` runs raw strudel code via `evaluate()` (identical to strudel.cc REPL); `pattern(data)` returns a Pattern object directly
 7. Track `.js` files — Self-contained Strudel tracks. Evaluate-mode tracks return strudel code strings; pattern-mode tracks return Pattern objects
 
