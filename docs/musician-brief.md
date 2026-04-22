@@ -106,6 +106,9 @@ Full jazz piano trio with two harmonic worlds: bullish (Bb major, ii-V-I-IV) and
 ### Digging in the Markets (lo-fi hip hop)
 Dusty, mellow lo-fi beats (~80 BPM). Swung drums, warm sine bass, Rhodes comping, sparse pentatonic melodies, vinyl texture. Bullish = Bb major, bearish = G minor — flat keys for that warm lo-fi register. `heat` controls layer density (sparse → full kit). `trade_rate` + `velocity` drive the intensity band: rim shots → swung 8ths → dropout 16ths. Momentum drives the melodic contour. Volatility adds reverb, detuning, and wobble. Price tints the global filter warmth.
 
+### Weather Vane (alert track)
+Single-voice vibraphone that indicates price direction. Silent when the market is flat. When `momentum` is positive, plays an ascending scale run; negative, a descending run. The scale follows `tone` — major when bullish, minor when bearish. `|momentum|` selects one of three density bands: sparse rising/falling pings at low magnitude, 5-note runs at mid, full 8-note runs with occasional octave sparkle at high. Because momentum is sensitivity-scaled server-side, cranking the sensitivity slider makes smaller moves wake the alert. No drums, no chords — direction-only, by design.
+
 ## Tools for Tuning
 
 - **Sandbox & Mastering** (`/sandbox`) — no live market needed. Use sliders to simulate any market condition (try the presets: Bull Run, Crash, Dead Market, Chaos, Breakout, Calm Trend). Sweep signals from 0→1 to hear the full dynamic range. Fire test events (spikes, price moves, resolutions). Adjust the volume of each voice (bass, melody, drums, etc.) independently with per-voice gain sliders. Solo or mute individual voices. Export your levels as JSON and send to the dev team to suggest mastering updates.

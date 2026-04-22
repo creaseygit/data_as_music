@@ -20,6 +20,7 @@ Every listener gets their own sensitivity curve, so the same market can sound di
 | ----- | ----- |
 | Late Night in Bb | 8-voice jazz trio |
 | Digging in the Markets | 8-voice lo-fi hip hop with swung drums and Rhodes |
+| Weather Vane | Single-voice vibraphone price-direction alert (silent when the market is still) |
 
 Drop a new `.js` file in `frontend/tracks/` and restart — no other changes needed.
 
