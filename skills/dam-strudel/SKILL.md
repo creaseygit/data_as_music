@@ -594,6 +594,96 @@ Dirt-Samples variants: `bd:0`–`bd:23`, `sd:0`–`sd:11`, `cr:0`–`cr:5`, etc.
 
 ---
 
+## Custom Samples (Local Audio Files)
+
+For tracks that need project-specific sounds — voice clips, meme samples, field recordings, one-shot SFX — drop audio files into the repo's `samples/` directory and register them as Strudel aliases in the audio engine's prebake.
+
+### 1. Drop the files
+
+```
+samples/
+  so_over.mp3
+  so_back.mp3
+```
+
+Keep each file small (< 200 KB ideally) and pre-mastered. MP3/WAV/OGG all work. Files are committed to git, so they ship with the deploy.
+
+### 2. The server route
+
+`server.py` serves `samples/` at the URL path `/samples/` via aiohttp's `add_static`. This is already wired up — no changes needed when adding new files:
+
+```python
+samples_path = Path("samples")
+if samples_path.exists():
+    app.router.add_static("/samples/", path=str(samples_path), name="samples")
+```
+
+After dropping a file, it is reachable at e.g. `http://localhost:8888/samples/so_over.mp3`.
+
+### 3. Register the alias in Strudel's prebake
+
+In `frontend/audio-engine.js`, inside the `prebake` block, add your alias to the `samples({...})` dict call. Strudel's `samples()` accepts a map of `{ alias: 'url' }` and registers each alias for use as `.s("alias")`:
+
+```javascript
+samples({
+  so_over: '/samples/so_over.mp3',
+  so_back: '/samples/so_back.mp3',
+  // Add new aliases here:
+  // my_clip: '/samples/my_clip.wav',
+}),
+```
+
+Then add the new alias to the warmup stack a few lines down so the browser fetches and decodes the sample before playback starts — otherwise the first trigger will be silent for 1–3s while the file loads:
+
+```javascript
+sound("so_over so_back my_clip"),  // add aliases here
+```
+
+### 4. Use the sample in a track
+
+Once registered, a sample alias behaves exactly like `bd` or `piano` — reference it via `.s("alias")` or `s("alias")`:
+
+```javascript
+// Simple one-shot on a beat
+$: s("so_back").gain(0.8).orbit(2);
+
+// Alternate between two samples depending on direction
+const alias = pm > 0 ? "so_back" : "so_over";
+$: s("${alias}").gain(${g}).room(0.1).orbit(2);
+
+// Sparse firing via <> alternation (same trick as melodic phrases)
+$: s("<so_back ~ ~>").gain(0.7).orbit(2);  // fires every 3 cycles
+
+// Sample choice chosen probabilistically each cycle
+$: s("[so_back|so_over]").gain(0.6).orbit(2);
+
+// Chop a longer sample — .begin/.end select a slice (0-1 of the file)
+$: s("my_clip").begin(0.25).end(0.5).gain(0.7).orbit(2);
+
+// Re-pitch by playback rate (also time-stretches)
+$: s("my_clip").speed(1.5).gain(0.6).orbit(2);
+```
+
+### Sample-specific gotchas
+
+- **Samples are not pitched.** `.note(...)` on a custom sample just re-pitches it via playback rate, which time-stretches. If you need pitched instruments, use `gm_*` soundfonts or `piano` instead.
+- **Long samples overlap with retriggers.** A 2-second sample at `cpm=60` (1 cycle/s) will be cut off or overlap. Match your `cpm` and pattern density to the sample length, or use `<>` / sparse patterns to avoid retriggers. `.clip(n)` trims playback.
+- **Keep filenames lowercase with underscores.** The alias you pass to `samples({...})` becomes the sound name in track code; `so_back` is easier to type than `So Back.mp3`.
+- **Aliases live in audio-engine prebake, not in track files.** Never call `samples()` from a track — it races with playback and can register twice. The prebake runs once, up front.
+- **Don't hash-bust sample URLs.** The `/static/` route gets cache-busting query strings; `/samples/` does not. If a sample changes, bump the alias name (`so_back` → `so_back_v2`) or ask the user to hard-refresh.
+
+### Category note
+
+A track can declare any category string in its header comment (`// category: 'funny'`). For the category tab to appear in the UI, add it to the order list in `frontend/app.js`:
+
+```javascript
+const order = [['music', 'Music'], ['alert', 'Alerts'], ['funny', 'Funny'], ['diagnostic', 'Diagnostic']];
+```
+
+Existing categories: `music`, `alert`, `funny`, `diagnostic`.
+
+---
+
 ## Strudel Quick Reference
 
 ### Mini-Notation Cheatsheet
@@ -699,22 +789,19 @@ See [examples/_template.js](examples/_template.js) — the annotated template fo
 - Cache key construction including gain values
 - `onEvent()` handler structure
 
-### Poolside House
+### Digging in the Markets
 
-See [examples/poolside_house.js](examples/poolside_house.js) — a relaxed daytime house track at 116 BPM with full mastering support.
+See [examples/digging_in_the_markets.js](examples/digging_in_the_markets.js) — a dusty lo-fi hip hop track at 80 BPM (cpm=20) with full mastering support. This is a production track shipping on dam.fm; it's the most fleshed-out demonstration of the design principles in the codebase.
 
 **What it demonstrates:**
-- **Mastering support**: 7 voice declarations (kick, chords, bass, perc, melody, counter, pad), all gains flow through `getGain()`, gain values included in cache key
-- **Extracted voice functions**: `kickCode()`, `chordsCode()`, `bassCode()`, `percCode()`, `melodyCode()`, `counterCode()`, `padCode()` — each receives a `gainMul` from `getGain()`
-- **Directional contour** (Design Principles §3): melody phrases ascend/descend with momentum, bass walks up/down, chord root motion and pad voicings follow market direction. Sideways market gets meandering patterns with random choices.
-- **Generative melody** (Design Principles §2): `.iter(4)`, `.palindrome()`, `.degradeBy()` driven by volatility, `|` random choice in note patterns, `.rarely(add(note(7)))` for octave sparkle
-- **Living percussion** (Design Principles §5): perlin-humanized hi-hat velocity, `.sometimes()` accents, `.rarely(ply(2))` flams, `.iter()` rotating emphasis, `.every(4, struct("x(5,8)"))` euclidean variation
-- **Layer stripping** (Design Principles §1): pad (>0.1) → rhodes (>0.15) → bass (>0.25) → drums (>0.3) → melody (momentum-driven) → counter-melody (>0.6). At heat=0, all blocks emit silence.
-- Rhodes with offbeat stabs, jazz voicings, 3-tier percussion, bouncy walking bass
+- **Mastering support**: 8 voice declarations (kick, snare, hihat, keys, bass, melody, texture, pad), all gains flow through `getGain()`, gain values included in cache key
+- **Extracted voice functions**: `kickCode()`, `snareCode()`, `hihatCode()`, `keysCode()`, `bassCode()`, `melodyCode()`, `textureCode()`, `padCode()` — each receives a `gainMul` from `getGain()`
+- **Motif-based melody system** (Design Principles §2): a seed motif `[0,1,2,4]` (pentatonic degrees) drives nine 8-bar phrase sets — 3 magnitude levels × 3 directions (rise/fall/flat). Bars 1 & 8 anchor the motif, bars 2–7 develop it via neighbour, sequence, extension, truncation, enclosure, and retrograde answer. Volatility adds `.degradeBy()` fragmentation; high `intBand` adds `.rarely(add(note(5)))` octave reinforcement.
+- **Directional contour** (Design Principles §3): melody phrases literally climb on uptrend (`RISE_LOW/MED/HIGH`) and descend on downtrend (`FALL_LOW/MED/HIGH`); flat markets get oscillating motif fragments that never reach degree 4 — the resolution the ear is waiting for. Bass roots walk up/down chord tones. Rhodes chord progressions ascend or descend. Pad triads follow the same motion.
+- **Progressive kick stages** (Design Principles §4): kick pattern changes by heat band — `"bd ~ ~ ~"` (beat 1 only) below h=0.40, `"bd ~ ~ ~ bd ~ ~ ~"` (beats 1 & 3) below h=0.60, then `"bd ~ ~ [~ bd] bd ~ ~ ~"` with a ghost pickup above. Snare ramps from `"~ rim ~ ~"` → rim backbeat → full snare by `intBand`. Hats go 4 → 8 → 16 subdivision with `.degradeBy()` on the top tier.
+- **Living percussion** (Design Principles §5): perlin-humanized hat velocity (`gain(perlin.range(lo, hi))`), `.iter(4)` rotating emphasis on 8th-note hats, `.sometimes()` accents and `.swingBy(0.18, 4)` for the lo-fi groove, 8th-note delay on the piano melody with `.delayfeedback(0.4)`
+- **Layer stripping** (Design Principles §1): texture (>0.05) → pad (>0.10) → bass (>0.20) → rhodes (>0.25) → kick + hats (>0.25) → snare (>0.30) → melody (`|mom| > 0.2` or `h > 0.45`). At `heat=0`, every block emits `$: silence;`.
+- **Event ornamentation**: `spike` → soft open hat, `price_move` → the seed motif `[0,1,2,4]` or its inversion fires as a piano run, `resolved` → a sustained Rhodes chord as a finale
+- **Fixed key, directional mood**: always Bb pentatonic — mood comes from melodic direction, not mode. `tone` still swaps chord quality between Bb major (`<Bb^7 Cm7 Dm7 Eb^7>`) and G minor (`<Gm7 Bb^7 Cm7 Dm7>`), but the scale stays put so phrases from adjacent states don't clash.
 
-**Known areas for improvement:**
-- **Percussion lacks dynamic range** (Design Principles §4): kick is binary (off below heat 0.3, full four-on-the-floor above). Needs progressive stages (sparse → half-time → full → fills). Same for hats, snare, and supporting percussion. All percussion instruments should build up continuously with the market, not switch on at full density.
-- Could benefit from a texture/atmosphere layer (filtered noise, nature-like ambience) at mid-heat
-- Counter-melody could use a different timbre (vibraphone?) to differentiate from main melody
-
-Study this track for structure and architecture. It implements all four Design Principles and the mastering format.
+Study this track for structure and architecture. It implements all five Design Principles and the mastering format, and the motif system is a useful pattern to crib when writing any melody that needs to sustain a long listening session without feeling looped.
