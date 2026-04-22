@@ -11,36 +11,67 @@ from config import (
 
 class MarketScorer:
     """
-    Tracks real-time signals for each market and produces a
-    normalised heat score between 0.0 and 1.0.
+    Tracks real-time signals for each market.
+
+    The mid price is the single source of truth for all price-derived
+    signals. Raw mid samples are passed through a 3-sample rolling median
+    before entering history, which removes single-tick book jitter while
+    preserving step changes. All derivative signals (velocity, volatility,
+    momentum, price_move, tone) read from this smoothed history.
+
+    Sampling cadence is external: callers invoke `sample_mid(aid)` once per
+    DATA_PUSH_INTERVAL for each market being watched.
     """
 
     # Spreads older than this (seconds) are considered stale and reset to default
     SPREAD_STALE_SECS = 30
 
+    # Number of recent samples averaged for the smoothed-spread read.
+    SPREAD_SMOOTH_WINDOW = 3
+
+    # Number of raw mid samples in the rolling-median smoother.
+    MID_SMOOTH_WINDOW = 3
+
+    # Depth of the per-market mid price history (in samples). At 3s cadence,
+    # 200 samples ≈ 10 min — enough for the 5-min velocity window plus
+    # headroom for the longest sensitivity-scaled windows (8 min).
+    MID_HISTORY_MAXLEN = 200
+
     def __init__(self):
-        # price history: market_id → deque of (timestamp, price)
-        self.price_history  = defaultdict(lambda: deque(maxlen=20))
-        # trade events: market_id → deque of timestamps
-        self.trade_times    = defaultdict(lambda: deque(maxlen=500))
-        # best bid/ask: market_id → (bid, ask)
-        self.spreads        = defaultdict(lambda: (0.4, 0.6))
-        # timestamp of last spread update per market
+        # Latest top-of-book per market, updated as book events stream in.
+        self._latest_bid    = {}
+        self._latest_ask    = {}
         self._spread_updated = defaultdict(float)
+
+        # Rolling median smoother: last N raw mid samples per market.
+        self._raw_mid_samples = defaultdict(lambda: deque(maxlen=self.MID_SMOOTH_WINDOW))
+
+        # Smoothed mid price history: market_id → deque of (timestamp, mid).
+        # Populated by sample_mid() at the broadcast cadence, not on every
+        # book event. Used by price_velocity and by the server for all
+        # other price-derived signals.
+        self.price_history  = defaultdict(lambda: deque(maxlen=self.MID_HISTORY_MAXLEN))
+
+        # Recent spread values, sampled at the same cadence as price_history.
+        self._spread_history = defaultdict(lambda: deque(maxlen=self.SPREAD_SMOOTH_WINDOW))
+
+        # Trade events: market_id → deque of timestamps (for rate).
+        self.trade_times    = defaultdict(lambda: deque(maxlen=500))
+
         # 24h volume from Gamma REST (static per fetch cycle)
         self.volumes        = defaultdict(float)
+
         # Adaptive trade rate: EMA of trades/min per market
         self._rate_ema      = defaultdict(float)    # smoothed baseline
         self._rate_last_t   = defaultdict(float)    # last EMA update time
+
         # Trade sizes: market_id → deque of (timestamp, size)
         self.trade_sizes    = defaultdict(lambda: deque(maxlen=200))
+
         # Whale trades: market_id → deque of (timestamp, size, price, magnitude)
         self.whale_trades   = defaultdict(lambda: deque(maxlen=20))
 
     # ── Feed methods (called by WebSocket handler) ────────
-
-    def on_price_change(self, market_id: str, price: float):
-        self.price_history[market_id].append((time.time(), price))
 
     def on_trade(self, market_id: str, size: float = 0.0, price: float = 0.0):
         now = time.time()
@@ -50,23 +81,92 @@ class MarketScorer:
             self._check_whale(market_id, size, price, now)
 
     def on_best_bid_ask(self, market_id: str, bid: float, ask: float):
-        self.spreads[market_id] = (bid, ask)
+        self._latest_bid[market_id] = bid
+        self._latest_ask[market_id] = ask
         self._spread_updated[market_id] = time.time()
 
     def set_volume(self, market_id: str, volume: float):
         self.volumes[market_id] = volume
 
+    # ── Mid sampling ──────────────────────────────────────
+
+    def sample_mid(self, market_id: str) -> float | None:
+        """Take one sample of the current mid into the smoothed history.
+
+        Must be called at a regular cadence (once per DATA_PUSH_INTERVAL per
+        watched market) from the broadcast loop. Returns the newly stored
+        smoothed value, or None if we have no bid/ask yet.
+
+        The smoother is a rolling median of the last MID_SMOOTH_WINDOW raw
+        samples. A single outlier (e.g., a transient cancel-driven mid jump)
+        can't pass through until it persists for at least two samples, but a
+        real step change appears almost immediately — median of [a, a, b] is
+        still a on the first new b, but median of [a, b, b] is b on the
+        second.
+
+        Also records the current raw spread into _spread_history so spread
+        reads are smoothed over the same cadence.
+        """
+        bid = self._latest_bid.get(market_id)
+        ask = self._latest_ask.get(market_id)
+        if bid is None or ask is None:
+            return None
+        raw_mid = (bid + ask) / 2.0
+        raw_spread = max(0.0, ask - bid)
+
+        samples = self._raw_mid_samples[market_id]
+        samples.append(raw_mid)
+        smoothed_mid = statistics.median(samples)
+
+        self.price_history[market_id].append((time.time(), smoothed_mid))
+        self._spread_history[market_id].append(raw_spread)
+        return smoothed_mid
+
+    # ── Read helpers ──────────────────────────────────────
+
+    def get_smoothed_mid(self, market_id: str) -> float | None:
+        """Latest smoothed mid, or None if no samples yet."""
+        hist = self.price_history.get(market_id)
+        if not hist:
+            return None
+        return hist[-1][1]
+
+    def get_recent_mids(self, market_id: str, window_seconds: float) -> list[tuple[float, float]]:
+        """Return (t, mid) entries from the last `window_seconds`."""
+        hist = self.price_history.get(market_id)
+        if not hist:
+            return []
+        cutoff = time.time() - window_seconds
+        return [(t, p) for t, p in hist if t >= cutoff]
+
+    def get_smoothed_spread(self, market_id: str) -> float:
+        """Mean spread over the last SPREAD_SMOOTH_WINDOW samples. Returns
+        a default wide spread (0.2) when stale or missing, matching the
+        SPREAD_STALE_SECS behaviour in spread_score."""
+        updated = self._spread_updated.get(market_id, 0)
+        if updated and time.time() - updated > self.SPREAD_STALE_SECS:
+            return 0.2  # stale — treat as moderately wide
+        hist = self._spread_history.get(market_id)
+        if not hist:
+            return 0.2
+        return sum(hist) / len(hist)
+
     # ── Scoring ───────────────────────────────────────────
 
     def price_velocity(self, market_id: str, window: int = 300) -> float:
-        """Rate of price change over last `window` seconds. Returns 0–1."""
-        history = list(self.price_history[market_id])
-        now = time.time()
-        recent = [(t, p) for t, p in history if now - t < window]
+        """Price excursion (max-min) over the last `window` seconds,
+        normalized so VELOCITY_MAX_MOVE = 1.0.
+
+        This is max-min range rather than endpoint subtraction: a market
+        that swung up 5¢ and back down reads 0.5 (5¢ range), not 0. That
+        distinguishes it from price_move (which is directional) and gives
+        a stable magnitude signal that doesn't cancel to zero on chop.
+        """
+        recent = self.get_recent_mids(market_id, window)
         if len(recent) < 2:
             return 0.0
         prices = [p for _, p in recent]
-        return min(1.0, abs(prices[-1] - prices[0]) / VELOCITY_MAX_MOVE)
+        return min(1.0, (max(prices) - min(prices)) / VELOCITY_MAX_MOVE)
 
     def _raw_trade_rate(self, market_id: str, window: int = 60) -> float:
         """Raw trades per minute over last `window` seconds."""
@@ -111,13 +211,14 @@ class MarketScorer:
 
     def spread_score(self, market_id: str) -> float:
         """Tight spread = active market. Returns 0–1 (higher = tighter).
-        Returns 0 if spread data is stale (no update in SPREAD_STALE_SECS)."""
+        Uses smoothed spread over the last few samples so a single top-of-
+        book cancel doesn't jerk the reading. Returns 0 if spread data is
+        stale (no update in SPREAD_STALE_SECS)."""
         updated = self._spread_updated.get(market_id, 0)
         if updated and time.time() - updated > self.SPREAD_STALE_SECS:
             return 0.0  # stale — treat as wide spread
-        bid, ask = self.spreads[market_id]
-        spread = ask - bid
-        return max(0.0, 1.0 - (spread / 0.3))   # 0.3 spread = 0 score
+        smoothed = self.get_smoothed_spread(market_id)
+        return max(0.0, 1.0 - (smoothed / 0.3))   # 0.3 spread = 0 score
 
     def volume_score(self, market_id: str, max_volume: float = 1_000_000) -> float:
         """Normalised 24h volume. Returns 0–1."""
@@ -156,7 +257,9 @@ class MarketScorer:
         return result
 
     def heat(self, market_id: str) -> float:
-        """Composite heat score 0.0–1.0."""
+        """Composite heat score 0.0–1.0. Uses a fixed 5-min price_velocity
+        window so heat reflects per-market activity independent of any
+        client's sensitivity setting."""
         # Dead market floor check — fewer than MIN_TRADE_RATE raw trades/min
         if self._raw_trade_rate(market_id) < MIN_TRADE_RATE:
             return 0.0

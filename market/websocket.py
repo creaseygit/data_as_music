@@ -77,15 +77,16 @@ class MarketFeed:
 
         if etype == "price_change":
             for change in msg.get("price_changes", []):
-                self.scorer.on_price_change(
-                    change["asset_id"], float(change["price"])
-                )
+                # A price_change describes an order-book level change (add,
+                # cancel, or partial fill) — it is not necessarily a trade
+                # execution. The `price` field is the level that changed,
+                # not a trade price. We use it only to update best bid/ask;
+                # trades come through `last_trade_price` events.
                 self.scorer.on_trade(
                     change["asset_id"],
                     size=float(change.get("size", 0)),
                     price=float(change["price"])
                 )
-                # price_changes also contain best bid/ask info
                 if "best_bid" in change and "best_ask" in change:
                     self.scorer.on_best_bid_ask(
                         change["asset_id"],

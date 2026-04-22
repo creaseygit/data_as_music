@@ -86,9 +86,9 @@ On top of the continuous data stream, you'll receive **events** — discrete mom
 
 Each listener has a **sensitivity slider** (0 – 1). You don't need to handle this — it's applied before your track receives data. But it's worth understanding what it does:
 
-**Activity signals** (`heat`, `velocity`, `trade_rate`, `spread`, `price_move`) get their amplitude scaled. High sensitivity makes quiet markets sound more active; low sensitivity makes them calmer.
+**Activity signals** (`heat`, `trade_rate`, `spread`) get their amplitude scaled. High sensitivity makes quiet markets sound more active; low sensitivity makes them calmer.
 
-**Trend signals** (`momentum`, `volatility`) get their **analysis window** changed — like switching between short and long moving averages on a trading chart:
+**Window signals** (`price_move`, `momentum`, `velocity`, `volatility`) get their **analysis window** changed — like switching between short and long moving averages on a trading chart:
 
 | Sensitivity | Window | Analogy |
 | --- | --- | --- |

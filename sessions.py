@@ -4,10 +4,14 @@ Per-client session management for multi-user WebSocket connections.
 Each browser client gets a ClientSession with independent market selection,
 sensitivity, and event detection state. SessionManager coordinates shared
 market WebSocket subscriptions via reference counting.
+
+Note: the price time series used for volatility / momentum / price_move
+lives on the scorer (shared across sessions watching the same market).
+The session only keeps per-client derived state — EMAs, hysteresis, event
+baselines — since those depend on the session's sensitivity setting.
 """
 import time
 import uuid
-from collections import deque
 from aiohttp import web
 
 
@@ -23,18 +27,15 @@ class ClientSession:
         self.track: str = "oracle"
         self.sensitivity: float = 0.5
 
-        # Per-client event detection state (mirrors old AppState fields)
+        # Per-client event detection state
         self._prev_heat: float = 0.0
         self._prev_price: float = 0.5
         self._prev_asset: str | None = None
         self._current_tone: int = 1           # 1=bullish, 0=bearish
-
-        # Rolling price buffer — 160 entries = 8 min at 3s intervals.
-        # Supports sensitivity-scaled windows for price_move, momentum, volatility.
-        self._price_history: deque[float] = deque(maxlen=160)
         self._prev_price_move: float = 0.0
 
-        # Dual-EMA state for momentum (MACD-inspired)
+        # Dual-EMA state for momentum (MACD-inspired). Updated per tick
+        # from the scorer's latest smoothed mid.
         self._ema_fast: float = 0.5
         self._ema_slow: float = 0.5
 
@@ -50,7 +51,6 @@ class ClientSession:
         self._prev_price = 0.5
         self._prev_asset = None
         self._current_tone = 1
-        self._price_history.clear()
         self._prev_price_move = 0.0
         self._ema_fast = 0.5
         self._ema_slow = 0.5

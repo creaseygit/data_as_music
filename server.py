@@ -12,6 +12,7 @@ import asyncio
 import hashlib
 import json
 import re
+import statistics
 import sys
 import time
 from datetime import datetime, timedelta, timezone
@@ -33,7 +34,7 @@ from config import (
     RESCORE_INTERVAL, BROWSE_CATEGORIES,
     DEFAULT_SENSITIVITY, EVENT_HEAT_THRESHOLD, EVENT_PRICE_THRESHOLD,
     WS_PING_INTERVAL, MAX_CLIENTS, DATA_PUSH_INTERVAL,
-    PRICE_MOVE_MAX_30S, WARMUP_DURATION,
+    PRICE_MOVE_MAX_30S, VELOCITY_MAX_MOVE, WARMUP_DURATION,
 )
 
 
@@ -207,88 +208,93 @@ async def price_poll_loop(interval=5.0):
 
 def _compute_market_data(session: ClientSession, scorer: MarketScorer):
     """Compute normalized market data for a single client session.
-    Returns (data_dict, events_list) or (None, []) if no market."""
+    Returns (data_dict, events_list) or (None, []) if no market.
+
+    The price-derived signals all read from the scorer's smoothed mid
+    history (`scorer.price_history`), which is sampled once per broadcast
+    tick via `scorer.sample_mid(aid)` and pre-smoothed by a rolling
+    median. That single clean series feeds velocity, volatility, momentum,
+    price_move and tone — no separate per-session history is kept.
+    """
     aid = session.asset_id
     market = session.market
     if not aid or not market:
         return None, []
 
-    heat = scorer.heat(aid)
-    vel = scorer.price_velocity(aid)
-    rate = scorer.trade_rate(aid)
-    bid, ask = scorer.spreads.get(aid, (0.4, 0.6))
-    spread = ask - bid
-
-    # Price: prefer WebSocket bid/ask midpoint, fall back to API
+    # ── Price: smoothed mid from scorer, fall back to API ─────
+    smoothed_mid = scorer.get_smoothed_mid(aid)
     api_price = _get_api_price(market, aid)
-    ws_mid = None
-    if bid != 0.4 or ask != 0.6:
-        ws_mid = (bid + ask) / 2.0
-    last_price = ws_mid if ws_mid is not None else (api_price if api_price is not None else 0.5)
+    last_price = (
+        smoothed_mid if smoothed_mid is not None
+        else (api_price if api_price is not None else 0.5)
+    )
 
-    # Normalize to 0-1
-    heat_n = max(0.0, min(1.0, heat))
-    price_n = max(0.0, min(1.0, last_price))
-    velocity_n = max(0.0, min(1.0, vel))
-    trade_rate_n = max(0.0, min(1.0, rate))
-    spread_n = _scale(spread, 0, 0.3, 0.0, 1.0)
-
-    # Sensitivity curve
+    # ── Sensitivity configuration ─────────────────────────────
     sens_exp = _sensitivity_exponent(session.sensitivity)
-    heat_n = _apply_sensitivity(heat_n, sens_exp)
-    velocity_n = _apply_sensitivity(velocity_n, sens_exp)
-    trade_rate_n = _apply_sensitivity(trade_rate_n, sens_exp)
-    spread_n = _apply_sensitivity(spread_n, sens_exp)
+    sens_window = _sensitivity_window(session.sensitivity)
+    sens_window_seconds = sens_window * DATA_PUSH_INTERVAL
 
-    # Tone hysteresis
+    # ── Rotation: reset per-session state when the market changes ──
+    events = []
+    is_rotation = (aid != session._prev_asset)
+    if is_rotation:
+        session._prev_asset = aid
+        session._prev_heat = scorer.heat(aid)
+        session._prev_price = last_price
+        session._prev_price_move = 0.0
+        session._current_tone = 1 if last_price > 0.5 else 0
+        session._ema_fast = last_price
+        session._ema_slow = last_price
+        session._market_start_time = time.monotonic()
+
+    # ── Tone hysteresis (on smoothed price) ───────────────────
     if session._current_tone == 1 and last_price < 0.45:
         session._current_tone = 0
     elif session._current_tone == 0 and last_price > 0.55:
         session._current_tone = 1
     tone = session._current_tone
 
-    # Rotation detection
-    events = []
-    is_rotation = (aid != session._prev_asset)
-    if is_rotation:
-        session._prev_asset = aid
-        session._prev_heat = heat
-        session._prev_price = last_price
-        session._current_tone = 1 if last_price > 0.5 else 0
-        session._price_history.clear()
-        session._ema_fast = last_price
-        session._ema_slow = last_price
-        session._market_start_time = time.monotonic()
+    # ── Activity signals: heat / trade_rate / spread (power curve) ──
+    heat = scorer.heat(aid)                    # uses fixed 5-min velocity internally
+    trade_rate = scorer.trade_rate(aid)
+    spread_raw = scorer.get_smoothed_spread(aid)
 
-    # Append to rolling price buffer (one entry per broadcast cycle)
-    session._price_history.append(last_price)
+    heat_n       = _apply_sensitivity(max(0.0, min(1.0, heat)), sens_exp)
+    trade_rate_n = _apply_sensitivity(max(0.0, min(1.0, trade_rate)), sens_exp)
+    spread_n     = _apply_sensitivity(_scale(spread_raw, 0, 0.3, 0.0, 1.0), sens_exp)
+    price_n      = max(0.0, min(1.0, last_price))
 
-    # ── Sensitivity-scaled window (for price_move, momentum & volatility) ──
-    sens_window = _sensitivity_window(session.sensitivity)
+    # ── Window-family signals read from scorer's smoothed history ──
+    # velocity / volatility / momentum / price_move all share the same
+    # sens-scaled window so sensitivity acts as one consistent knob
+    # (timescale), and all derive from the same smoothed samples.
+    recent = scorer.get_recent_mids(aid, sens_window_seconds)
+    recent_prices = [p for _, p in recent]
 
-    # ── Momentum: dual-EMA signed trend (MACD-inspired) ──
-    # Fast EMA period = window/3, slow EMA period = window.
-    # Sensitivity controls window → high sens = short EMAs = reactive.
+    # Velocity: max-min excursion over the sens window, unsigned.
+    # Distinct from price_move (signed, endpoint) and volatility (stddev).
+    if len(recent_prices) >= 2:
+        velocity_n = min(1.0, (max(recent_prices) - min(recent_prices)) / VELOCITY_MAX_MOVE)
+    else:
+        velocity_n = 0.0
+
+    # Volatility: stddev over the same window, normalized to 3¢ = 1.0.
+    if len(recent_prices) >= 2:
+        mean_p = sum(recent_prices) / len(recent_prices)
+        variance = sum((p - mean_p) ** 2 for p in recent_prices) / len(recent_prices)
+        volatility_n = min(1.0, variance ** 0.5 / 0.03)
+    else:
+        volatility_n = 0.0
+
+    # Momentum: dual-EMA on the smoothed mid. Updated every tick.
+    # Fast period = window/3, slow = window. ±5¢ divergence → ±1.0.
     alpha_fast = 2.0 / (sens_window / 3 + 1)
     alpha_slow = 2.0 / (sens_window + 1)
     session._ema_fast += alpha_fast * (last_price - session._ema_fast)
     session._ema_slow += alpha_slow * (last_price - session._ema_slow)
-    raw_momentum = session._ema_fast - session._ema_slow
-    # Normalize: ±0.05 divergence → ±1.0
-    momentum_n = max(-1.0, min(1.0, raw_momentum / 0.05))
+    momentum_n = max(-1.0, min(1.0, (session._ema_fast - session._ema_slow) / 0.05))
 
-    # ── Volatility: stddev of price over sensitivity-scaled window ──
-    vol_entries = list(session._price_history)[-sens_window:]
-    if len(vol_entries) >= 2:
-        mean_p = sum(vol_entries) / len(vol_entries)
-        variance = sum((p - mean_p) ** 2 for p in vol_entries) / len(vol_entries)
-        stddev = variance ** 0.5
-        # Normalize: 0.03 stddev (3¢ oscillation) → 1.0
-        volatility_n = min(1.0, stddev / 0.03)
-    else:
-        volatility_n = 0.0
-
-    # ── Event detection (with magnitudes) ──
+    # ── Event detection (pre price_move, so we have scorer-level deltas) ──
     if not is_rotation:
         heat_delta = abs(heat - session._prev_heat)
         raw_price_delta = last_price - session._prev_price
@@ -300,7 +306,6 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
             direction = 1 if raw_price_delta > 0 else -1
             move_mag = min(1.0, abs_price_delta / (EVENT_PRICE_THRESHOLD * 3))
             events.append({"event": "price_move", "direction": direction, "magnitude": round(move_mag, 4)})
-        # Whale detection (outlier trade sizes)
         whale_trades = scorer.get_whale_trades(aid, since=session._last_whale_check)
         session._last_whale_check = time.time()
         for wt in whale_trades:
@@ -313,29 +318,35 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
     session._prev_heat = heat
     session._prev_price = last_price
 
-    # ── Rolling price move (edge-detected, sensitivity-scaled window) ──
-    # Window matches momentum/volatility: 45s at max sens → 8min at min sens.
-    # Max magnitude scales with √window (random-walk growth) so "saturated"
-    # means "a big move for this timescale" at any sensitivity. This makes
-    # sensitivity a semantic control (what counts as a move?) rather than
-    # just a loudness curve. No separate drift detection needed — slow creep
-    # naturally surfaces as a long-window signal at low sensitivity.
-    #
-    # During warmup the buffer is still filling, so we compute pm_max from
-    # the *actual* window, not the target. This gives a natural fade-in:
-    # early on with only 60s of history, "big" means 60s-appropriate
-    # (~4¢); as the window grows to 8min, the bar grows to ~12¢. The alert
-    # stays responsive to real moves during the warmup tail and gradually
-    # calms as it accumulates context.
+    # ── Price_move: signed, edge-gated, median-of-endpoints ───
+    # Compare the median of the most recent 3 samples against the median
+    # of 3 samples around the window-ago point. Using medians on both
+    # ends (instead of single-sample endpoints) means a stray outlier
+    # at either edge can't own the reading. Max magnitude scales with
+    # √window so "saturated" means "a big move for this timescale."
+    history = list(scorer.price_history.get(aid, []))
     price_move_raw = 0.0
-    if not is_rotation and len(session._price_history) >= 2:
-        window_entries = min(len(session._price_history), sens_window)
+    if not is_rotation and len(history) >= 2:
+        prices_only = [p for _, p in history]
+        tail_window = prices_only[-min(3, len(prices_only)):]
+
+        # Effective window: actual buffered length if shorter than target.
+        window_entries = min(len(prices_only), sens_window)
         actual_window_seconds = window_entries * DATA_PUSH_INTERVAL
+
+        # Indices for the head median: centered on window_entries-back.
+        head_center = len(prices_only) - window_entries
+        head_lo = max(0, head_center - 1)
+        head_hi = min(len(prices_only), head_center + 2)  # inclusive of ±1
+        head_window = prices_only[head_lo:head_hi] or [prices_only[0]]
+
+        tail_med = statistics.median(tail_window)
+        head_med = statistics.median(head_window)
+        raw_move = tail_med - head_med
+
         pm_max = PRICE_MOVE_MAX_30S * (actual_window_seconds / 30.0) ** 0.5
-        old_price = session._price_history[-window_entries]
-        raw_move = last_price - old_price
         move_sign = 1.0 if raw_move >= 0 else -1.0
-        move_mag = min(1.0, abs(raw_move) / pm_max)
+        move_mag = min(1.0, abs(raw_move) / pm_max) if pm_max > 0 else 0.0
         price_move_raw = move_sign * move_mag
 
     # Edge detection: only emit price_move when movement is *increasing*
@@ -344,11 +355,11 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
     prev_pm = session._prev_price_move
     same_dir = (price_move_raw >= 0) == (prev_pm >= 0)
     if same_dir and abs(price_move_raw) > abs(prev_pm) + 0.01:
-        price_move_n = price_move_raw          # magnitude growing → active move
+        price_move_n = price_move_raw
     elif not same_dir and abs(price_move_raw) > 0.15:
-        price_move_n = price_move_raw          # direction flipped → new move
+        price_move_n = price_move_raw
     else:
-        price_move_n = 0.0                     # flat or decaying → silence
+        price_move_n = 0.0
 
     session._prev_price_move = price_move_raw
 
@@ -362,15 +373,13 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
         volatility_n *= w
         momentum_n *= w
         price_move_n *= w
-        # Suppress events during warmup — they'd be noise
         events = []
 
     # Window metadata for client visualisation: target window for the
     # sensitivity-scaled signals, and how much of that window is actually
     # backed by buffered history (fills from 0→1 over up to 8 min after
     # a market switch at low sensitivity).
-    window_seconds = sens_window * DATA_PUSH_INTERVAL
-    window_fill = min(1.0, len(session._price_history) / sens_window) if sens_window > 0 else 1.0
+    window_fill = min(1.0, len(history) / sens_window) if sens_window > 0 else 1.0
 
     data = {
         "heat": round(heat_n, 4),
@@ -383,7 +392,7 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
         "volatility": round(volatility_n, 4),
         "tone": tone,
         "sensitivity": round(session.sensitivity, 4),
-        "window_seconds": window_seconds,
+        "window_seconds": sens_window_seconds,
         "window_fill": round(window_fill, 4),
     }
     return data, events
@@ -405,7 +414,15 @@ async def broadcast_loop(interval=None):
                 rotation_counter = 0
                 await _check_live_rotations()
 
-            for session in state.sessions.all_sessions():
+            # Sample the mid once per watched market so the scorer's
+            # smoothed history advances at a regular cadence regardless
+            # of how many sessions are watching it.
+            sessions = state.sessions.all_sessions()
+            watched_assets = {s.asset_id for s in sessions if s.asset_id}
+            for aid in watched_assets:
+                state.scorer.sample_mid(aid)
+
+            for session in sessions:
                 if not session.asset_id:
                     continue
                 try:
@@ -459,9 +476,6 @@ async def _pin_market_for_session(session: ClientSession, slug: str):
     session._prev_asset = aid
     session._prev_price = 0.5
     session._current_tone = 1
-
-    # Seed prices
-    state.dj._seed_prices(market)
 
     # Watch and subscribe if needed
     is_first = state.sessions.watch_market(session.client_id, aid)
