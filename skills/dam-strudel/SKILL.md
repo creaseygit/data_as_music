@@ -198,6 +198,8 @@ if (h < 0.15) {
 
 Design every track so that **consecutive low-activity rebuilds converge toward silence**, not toward a quiet-but-busy loop. The listener is waiting for news — don't exhaust their attention with sound that carries no information.
 
+**Pick the right "is it quiet?" signal.** Prefer `heat` (overall activity) and `price_move` (edge-detected price movement) for silence gates. Both reliably reach zero when the market is idle. Do NOT gate silence on `momentum` — it's a lagged EMA divergence that hovers above zero on any real book (see "Pitfall: `price_move` vs `momentum`" in Data Signals).
+
 ### 2. Melodies Must Not Be Repetitive
 
 Tracks play for **hours**. A static 4-bar melody that ignores data becomes maddening within minutes. Every melodic element must either:
@@ -417,13 +419,28 @@ Every 3 seconds, `evaluateCode(data)` receives:
 |--------|-------|-------------|---------------|
 | `heat` | 0–1 | **Energy** | Volume, layer count, rhythmic density, arrangement fullness |
 | `price` | 0–1 | **Harmonic position** | Register, note choice. 0.5 = max tension. 0.9+ = resolution. <0.2 = doom |
-| `price_move` | -1–1 | **Phrase trigger** | Melodic runs, arpeggios, fills. Fires on 30s edge-detected movement AND slow drift (1.5¢+, graduated magnitude). Momentary gestures. |
-| `momentum` | -1–1 | **Section mood** | Build energy on uptrend, pull back on downtrend. Sustained — works for section-level decisions. |
+| `price_move` | -1–1 | **Phrase trigger / "is price moving NOW?"** | Melodic runs, arpeggios, fills, alert gates. Edge-detected: fires on active 30s movement or drift (1.5¢+), and is **exactly zero when the price is flat**. Momentary gestures. |
+| `momentum` | -1–1 | **Section mood / sustained trend direction** | Build energy on uptrend, pull back on downtrend. Dual-EMA (MACD-style) divergence — lags price, decays slowly after a move, and **hovers above zero whenever the fast/slow EMAs aren't perfectly aligned** (i.e. almost always on a jittery book). Do NOT use as a "silent when flat" gate — use `price_move` for that. |
 | `velocity` | 0–1 | **Pace** | Subdivision, tempo feel, rhythmic urgency. 5-min window, absolute: 10¢ move = 1.0 |
 | `volatility` | 0–1 | **Tension/uncertainty** | Dissonance, detuning, filter wobble, tremolo, irregular rhythms |
 | `trade_rate` | 0–1 | **Complexity** | Drum density, voice count, melodic ornamentation |
 | `spread` | 0–1 | **Liquidity feel** | Wide intervals vs tight clusters, consonance vs dissonance |
 | `tone` | 0 or 1 | **Key/mode** | 1 = bullish/major. 0 = bearish/minor. Has hysteresis — won't flicker. |
+
+### Pitfall: `price_move` vs `momentum` — choosing the right gate
+
+These both carry signed direction and can tempt you to use either, but they mean different things:
+
+- **`price_move` is "is price moving RIGHT NOW?"** — edge-detected and *truly zero* when the price is flat. Use it for:
+  - Alert tracks that should fall silent between moves
+  - Phrase triggers (runs, fills, one-shots)
+  - Any "show me direction only when direction exists" gate
+- **`momentum` is "what's the sustained trend direction?"** — a dual-EMA divergence. The fast and slow EMAs only converge after several time-constants of perfect stability, so on a real order book (with constant bid/ask jitter) `momentum` almost never hits zero — it hovers at small non-zero values indefinitely. Plus the normalization is `raw / 0.05`, so a 0.25¢ EMA gap already reads as 0.05. Use it for:
+  - Sustained mood: energy ramps, register shifts, arrangement density during trends
+  - Melodic contour direction in music tracks (skill §3)
+  - Anything that should stay "on" through a trend even while the price ticks are small
+
+**If you gate silence on `|momentum| < threshold`, the track will play almost constantly.** This was the bug in Weather Vane v1 — the fix was to gate on `price_move` instead. Sensitivity still applies to `price_move` server-side (power curve after edge detection), so using `price_move` does not cost you sensitivity-slider integration.
 
 ### The Four Market Moods
 

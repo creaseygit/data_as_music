@@ -1,14 +1,21 @@
 // ── Weather Vane ─────────────────────────────────────
 // Melody-only price direction indicator. A single vibraphone voice
-// runs up when price is trending up, down when trending down, and
-// stays silent when the market isn't moving.
+// runs up when price is actively moving up, down when actively moving
+// down, and stays silent when the market is flat.
+//
+// Gated on `price_move` (NOT `momentum`). `price_move` is the
+// edge-detected signal that emits zero when the price is truly flat —
+// exactly the semantic an alert needs. `momentum` is a lagged MACD-
+// style divergence that hovers above zero whenever the EMAs are out of
+// sync (which is almost always on a jittery book), so using it as the
+// gate makes the alert play constantly.
 //
 // Scale follows `tone` (1=major, 0=minor).
-// Direction follows the sign of `momentum`.
-// Magnitude of |momentum| selects one of three density bands and
-// scales gain. Sensitivity is baked into `momentum` server-side
-// (window-length scaling), so the sensitivity slider naturally
-// controls how much movement is needed to wake the alert.
+// Direction follows the sign of `price_move`.
+// Magnitude of |price_move| selects one of three density bands and
+// scales gain. Sensitivity is applied server-side as a power curve on
+// `price_move` after edge detection, so the sensitivity slider still
+// controls how readily the alert fires.
 // category: 'alert', label: 'Weather Vane'
 
 const weatherVane = (() => {
@@ -19,11 +26,11 @@ const weatherVane = (() => {
     return Math.round(v / step) * step;
   }
 
-  // Quantize |momentum| into three density bands
-  function magBand(absMom) {
-    if (absMom < 0.25) return 0;  // sparse rising/falling pings
-    if (absMom < 0.55) return 1;  // 5-note runs
-    return 2;                      // 8-note runs with ornamentation
+  // Quantize |price_move| into three density bands
+  function magBand(absPm) {
+    if (absPm < 0.25) return 0;  // sparse rising/falling pings
+    if (absPm < 0.55) return 1;  // 5-note runs
+    return 2;                     // 8-note runs with ornamentation
   }
 
   // Ascending phrases — <> alternates variants across cycles so the
@@ -41,14 +48,14 @@ const weatherVane = (() => {
     "<[14 12 11 9 7 5 4 2] [12 11 9 7 5 4 2 0]>",
   ];
 
-  function melodyCode(tone, mom, gainMul) {
-    const absMom = Math.abs(mom);
-    const band = magBand(absMom);
-    const pattern = mom > 0 ? ASC[band] : DESC[band];
+  function melodyCode(tone, pm, gainMul) {
+    const absPm = Math.abs(pm);
+    const band = magBand(absPm);
+    const pattern = pm > 0 ? ASC[band] : DESC[band];
     const scale = tone === 1 ? "C4:major" : "C4:minor";
 
     // Gain ramps from 0.22 (just above threshold) to 0.58 (max move).
-    const g = (0.22 + absMom * 0.36) * gainMul;
+    const g = (0.22 + absPm * 0.36) * gainMul;
 
     // Per-band variation — keeps the alert fresh over long sessions.
     //  band 0: <> alternation alone is enough (sparse by design)
@@ -86,25 +93,27 @@ const weatherVane = (() => {
     },
 
     evaluateCode(data) {
-      const mom = data.momentum || 0;
+      const pm = data.price_move || 0;
       const tone = data.tone !== undefined ? data.tone : 1;
 
-      // Quantize momentum — small numerical jitter shouldn't rebuild.
+      // Quantize price_move — keeps cache stable across tiny variations.
       // Sign is preserved so direction survives quantization.
-      const momQ = q(mom, 0.05);
-      const absMomQ = Math.abs(momQ);
+      const pmQ = q(pm, 0.05);
+      const absPmQ = Math.abs(pmQ);
 
       const gainKey = this.getGain('melody').toFixed(2);
-      const key = `${momQ}:${tone}:${gainKey}`;
+      const key = `${pmQ}:${tone}:${gainKey}`;
       if (_cachedCode && _cachedKey === key) return _cachedCode;
 
       let code = "setcpm(20);\n";
 
-      // No movement → no sound. Dead-zone avoids flickering on noise.
-      if (absMomQ < 0.05) {
+      // No active price movement → no sound. price_move is edge-detected
+      // and emits exactly zero when the price is flat, so this gate is
+      // reliable without needing to fight a lagging MACD-style signal.
+      if (absPmQ < 0.05) {
         code += "$: silence;\n";
       } else {
-        code += melodyCode(tone, momQ, this.getGain('melody'));
+        code += melodyCode(tone, pmQ, this.getGain('melody'));
       }
 
       _cachedCode = code;
