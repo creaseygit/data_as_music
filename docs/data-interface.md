@@ -8,7 +8,7 @@ The server pushes **normalized market data** to each connected browser client vi
 | ------------- | ---------- | ------------------------------------------------------------------- |
 | `heat`        | 0.0 – 1.0  | Composite market activity (velocity, trade rate, volume, spread)   |
 | `price`       | 0.0 – 1.0  | Current price (WS bid/ask midpoint preferred, Gamma API fallback)  |
-| `price_move`  | -1.0 – 1.0 | Edge-detected rolling price change. Uses 30s window but only emits non-zero when movement is *actively increasing* or direction flips. Also fires on slow cumulative drift (1.5¢+ creep since last detected move, graduated magnitude). Zero when price is truly flat. Signed. Normalized so raw 3¢ → magnitude 1.0 |
+| `price_move`  | -1.0 – 1.0 | Edge-detected rolling price change. Window scales with sensitivity (45s at max → 8min at min). Emits non-zero only when movement is *actively increasing* or direction flips. Zero when price is truly flat. Signed. Max magnitude scales with √window (random-walk growth): 30s→3¢, 2.5min→~7¢, 8min→~12¢ |
 | `momentum`    | -1.0 – 1.0 | Signed trend direction (dual-EMA, MACD-inspired). Positive = trending up, negative = trending down. Window scales with sensitivity (45s–8min). See Sensitivity section |
 | `velocity`    | 0.0 – 1.0  | Price velocity magnitude (unsigned, 5-min window, absolute: 10¢ move = 1.0) |
 | `trade_rate`  | 0.0 – 1.0  | Trades per minute, normalized via adaptive EMA baseline            |
@@ -23,7 +23,7 @@ Sensitivity affects different signals in different ways, inspired by how traders
 
 ### Window-scaled signals (sensitivity = period length)
 
-`momentum` and `volatility` use sensitivity to control their **analysis window** — like changing a moving average period on a chart. This changes *what* the signal measures, not just how loud it is.
+`price_move`, `momentum`, and `volatility` use sensitivity to control their **analysis window** — like changing a moving average period on a chart. This changes *what* the signal measures, not just how loud it is. For `price_move`, the saturation point (what counts as a "big" move = magnitude 1.0) also scales with √window, so a move's magnitude is always expressed relative to what's typical for that timescale.
 
 | Sensitivity | Window  | Trading analogy                        |
 | ----------- | ------- | -------------------------------------- |
@@ -37,7 +37,7 @@ The curve is exponential: short-period differences matter more than long ones (9
 
 ### Power-curve signals (sensitivity = amplitude)
 
-`heat`, `velocity`, `trade_rate`, `spread`, and `price_move` are transformed by a power curve:
+`heat`, `velocity`, `trade_rate`, and `spread` are transformed by a power curve:
 - At 50% (default): values are unchanged
 - At 100%: small values are inflated (more reactive)
 - At 0%: small values are crushed (less reactive)
@@ -66,7 +66,7 @@ The signals are designed to cover non-overlapping dimensions:
 | Signal       | Window    | Signed? | What it answers                          |
 | ------------ | --------- | ------- | ---------------------------------------- |
 | `price`      | instant   | n/a     | "Where is the market right now?"         |
-| `price_move` | 30s fixed | yes     | "Is price moving NOW?" (includes slow drift detection) |
+| `price_move` | 45s–8min  | yes     | "Is price moving NOW?" (sensitivity selects timescale) |
 | `momentum`   | 45s–8min  | yes     | "What's the sustained trend direction?"  |
 | `velocity`   | 5min      | no      | "How fast is price changing (any dir)?"  |
 | `volatility` | 45s–8min  | no      | "How erratic/uncertain is the market?"   |

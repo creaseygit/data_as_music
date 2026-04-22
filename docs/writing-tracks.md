@@ -101,7 +101,7 @@ The `pattern(data)` or `evaluateCode(data)` method receives these values every 3
 
   // ── Price & direction ──
   price: 0.0-1.0,        // Current market price (0=No, 1=Yes)
-  price_move: -1.0-1.0,  // "Is price moving RIGHT NOW?" — edge-detected (30s window) + slow drift (1.5¢+)
+  price_move: -1.0-1.0,  // "Is price moving RIGHT NOW?" — edge-detected, window 45s–8min (scales with sensitivity), saturates at √window-scaled max (~3¢ at 30s, ~12¢ at 8min)
   momentum: -1.0-1.0,    // "What's the trend?" — positive=uptrend, negative=downtrend (sensitivity-scaled window)
   velocity: 0.0-1.0,     // Speed of price change (unsigned, 5-min, absolute: 10¢=1.0)
 

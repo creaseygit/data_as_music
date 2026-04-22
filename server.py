@@ -33,7 +33,7 @@ from config import (
     RESCORE_INTERVAL, BROWSE_CATEGORIES,
     DEFAULT_SENSITIVITY, EVENT_HEAT_THRESHOLD, EVENT_PRICE_THRESHOLD,
     WS_PING_INTERVAL, MAX_CLIENTS, DATA_PUSH_INTERVAL,
-    PRICE_MOVE_WINDOW, PRICE_MOVE_MAX, DRIFT_THRESHOLD, WARMUP_DURATION,
+    PRICE_MOVE_MAX_30S, WARMUP_DURATION,
 )
 
 
@@ -258,13 +258,12 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
         session._price_history.clear()
         session._ema_fast = last_price
         session._ema_slow = last_price
-        session._drift_anchor = last_price
         session._market_start_time = time.monotonic()
 
     # Append to rolling price buffer (one entry per broadcast cycle)
     session._price_history.append(last_price)
 
-    # ── Sensitivity-scaled window (for momentum & volatility) ──
+    # ── Sensitivity-scaled window (for price_move, momentum & volatility) ──
     sens_window = _sensitivity_window(session.sensitivity)
 
     # ── Momentum: dual-EMA signed trend (MACD-inspired) ──
@@ -301,7 +300,6 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
             direction = 1 if raw_price_delta > 0 else -1
             move_mag = min(1.0, abs_price_delta / (EVENT_PRICE_THRESHOLD * 3))
             events.append({"event": "price_move", "direction": direction, "magnitude": round(move_mag, 4)})
-            session._drift_anchor = last_price  # reset anchor on event too
         # Whale detection (outlier trade sizes)
         whale_trades = scorer.get_whale_trades(aid, since=session._last_whale_check)
         session._last_whale_check = time.time()
@@ -315,24 +313,34 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
     session._prev_heat = heat
     session._prev_price = last_price
 
-    # ── Rolling price move (edge-detected, fixed 30s window) ──
-    # Compute on RAW magnitude so edge detection thresholds stay consistent
-    # regardless of sensitivity. Sensitivity is applied after edge detection.
+    # ── Rolling price move (edge-detected, sensitivity-scaled window) ──
+    # Window matches momentum/volatility: 45s at max sens → 8min at min sens.
+    # Max magnitude scales with √window (random-walk growth) so "saturated"
+    # means "a big move for this timescale" at any sensitivity. This makes
+    # sensitivity a semantic control (what counts as a move?) rather than
+    # just a loudness curve. No separate drift detection needed — slow creep
+    # naturally surfaces as a long-window signal at low sensitivity.
+    #
+    # During warmup the buffer is still filling, so we compute pm_max from
+    # the *actual* window, not the target. This gives a natural fade-in:
+    # early on with only 60s of history, "big" means 60s-appropriate
+    # (~4¢); as the window grows to 8min, the bar grows to ~12¢. The alert
+    # stays responsive to real moves during the warmup tail and gradually
+    # calms as it accumulates context.
     price_move_raw = 0.0
     if not is_rotation and len(session._price_history) >= 2:
-        window_entries = min(
-            len(session._price_history),
-            max(1, int(PRICE_MOVE_WINDOW / DATA_PUSH_INTERVAL)),
-        )
+        window_entries = min(len(session._price_history), sens_window)
+        actual_window_seconds = window_entries * DATA_PUSH_INTERVAL
+        pm_max = PRICE_MOVE_MAX_30S * (actual_window_seconds / 30.0) ** 0.5
         old_price = session._price_history[-window_entries]
         raw_move = last_price - old_price
         move_sign = 1.0 if raw_move >= 0 else -1.0
-        move_mag = min(1.0, abs(raw_move) / PRICE_MOVE_MAX)
+        move_mag = min(1.0, abs(raw_move) / pm_max)
         price_move_raw = move_sign * move_mag
 
     # Edge detection: only emit price_move when movement is *increasing*
     # (actively moving). When magnitude is flat or decaying (stale window
-    # sliding past a completed move), emit zero — unless drift is detected.
+    # sliding past a completed move), emit zero.
     prev_pm = session._prev_price_move
     same_dir = (price_move_raw >= 0) == (prev_pm >= 0)
     if same_dir and abs(price_move_raw) > abs(prev_pm) + 0.01:
@@ -342,26 +350,7 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
     else:
         price_move_n = 0.0                     # flat or decaying → silence
 
-    # Drift detection: catch slow cumulative creep that the edge detector misses.
-    # When edge detector emits zero, check displacement from the anchor price
-    # (set at the last non-zero emission). If it exceeds the drift threshold,
-    # emit a price_move based on the total drift.
-    if price_move_n == 0.0 and not is_rotation:
-        drift = last_price - session._drift_anchor
-        if abs(drift) >= DRIFT_THRESHOLD:
-            drift_sign = 1.0 if drift >= 0 else -1.0
-            drift_mag = min(1.0, abs(drift) / PRICE_MOVE_MAX)
-            price_move_n = drift_sign * drift_mag
-
-    # Update drift anchor whenever we emit a non-zero price_move
-    if price_move_n != 0.0:
-        session._drift_anchor = last_price
     session._prev_price_move = price_move_raw
-
-    # Apply sensitivity to the edge-detected result (not the raw input)
-    if price_move_n != 0.0:
-        pm_sign = 1.0 if price_move_n >= 0 else -1.0
-        price_move_n = pm_sign * _apply_sensitivity(abs(price_move_n), sens_exp)
 
     # ── Warmup blend: tween activity signals from calm to real ──
     w = _warmup_factor(session)

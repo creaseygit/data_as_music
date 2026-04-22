@@ -21,9 +21,15 @@ EVENT_HEAT_THRESHOLD   = 0.15      # heat delta to fire :event_spike
 EVENT_PRICE_THRESHOLD  = 0.03      # price delta (¢) to fire :event_price_move
 
 # ── Rolling price movement ─────────────────────────────────
-PRICE_MOVE_WINDOW      = 30        # seconds — look-back for price_move signal
-PRICE_MOVE_MAX         = 0.03      # 3¢ move in window = magnitude 1.0
-DRIFT_THRESHOLD        = 0.015     # 1.5¢ cumulative creep → emit price_move (graduated: 1.5¢=0.5, 3¢=1.0)
+# price_move uses a sensitivity-scaled window (same curve as momentum/
+# volatility: 45s at max sens → 8min at min sens). Max magnitude scales
+# with √window (random-walk growth) so "saturated" means "a big move
+# for this timescale" at any sensitivity:
+#   45s  window →  ~3.7¢   (scalper move)
+#   2.5min       →  ~7¢    (day-trader move)
+#   8min         →  ~12¢   (sustained swing trend)
+# The curve is anchored at PRICE_MOVE_MAX_30S (a 3¢ move in 30s = 1.0).
+PRICE_MOVE_MAX_30S     = 0.03      # anchor: a 3¢ move in 30s saturates magnitude
 VELOCITY_MAX_MOVE      = 0.10      # 10¢ move in velocity window = 1.0 (absolute, not percentage)
 
 # ── WebSocket (server → browser) ────────────────────────

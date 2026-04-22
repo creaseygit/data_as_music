@@ -30,10 +30,9 @@ class ClientSession:
         self._current_tone: int = 1           # 1=bullish, 0=bearish
 
         # Rolling price buffer — 160 entries = 8 min at 3s intervals.
-        # Supports sensitivity-scaled windows for momentum & volatility.
+        # Supports sensitivity-scaled windows for price_move, momentum, volatility.
         self._price_history: deque[float] = deque(maxlen=160)
         self._prev_price_move: float = 0.0
-        self._drift_anchor: float = 0.5    # price at last price_move emission
 
         # Dual-EMA state for momentum (MACD-inspired)
         self._ema_fast: float = 0.5
@@ -53,7 +52,6 @@ class ClientSession:
         self._current_tone = 1
         self._price_history.clear()
         self._prev_price_move = 0.0
-        self._drift_anchor = 0.5
         self._ema_fast = 0.5
         self._ema_slow = 0.5
         self._last_whale_check = 0.0
