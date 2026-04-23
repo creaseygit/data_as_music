@@ -530,12 +530,6 @@ function _updateVoiceRack(data) {
   }
 }
 
-function _fmtSeconds(s) {
-  if (s < 60) return Math.round(s) + 's';
-  const m = s / 60;
-  return (m >= 10 ? Math.round(m) : m.toFixed(1)) + 'm';
-}
-
 function _updatePriceBar(data) {
   const needle = document.getElementById('np-price-needle');
   const value = document.getElementById('np-price-value');
@@ -551,17 +545,15 @@ function _updatePriceBar(data) {
 function _updateWarmupBanner(data) {
   const banner = document.getElementById('np-warmup');
   if (!banner) return;
-  banner.style.display = '';
-  const fill = data.window_fill ?? 1;
-  if (fill >= 0.98) {
-    banner.classList.add('tuned');
-    banner.textContent = 'Tuned in';
+  const w = data.warmup_factor ?? 1;
+  if (w >= 1.0) {
+    banner.style.display = 'none';
+    banner.classList.remove('tuned');
     return;
   }
+  banner.style.display = '';
   banner.classList.remove('tuned');
-  const winSec = data.window_seconds ?? 150;
-  const remaining = winSec * (1 - fill);
-  banner.textContent = `Tuning in · ready in ${_fmtSeconds(remaining)}`;
+  banner.textContent = 'Tuning in';
 }
 
 function onWsMarketData(data) {

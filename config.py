@@ -1,5 +1,6 @@
 # ── Market API ───────────────────────────────────────────
 GAMMA_API      = "https://gamma-api.polymarket.com"
+CLOB_REST      = "https://clob.polymarket.com"
 CLOB_WS        = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 
 # How often to re-score and potentially re-mix (seconds)
@@ -38,7 +39,12 @@ MAX_CLIENTS      = 200          # safety limit on concurrent WebSocket connectio
 DATA_PUSH_INTERVAL = 3.0        # seconds between market data pushes to clients
 
 # ── Warmup (intro fade-in on market switch) ─────────────
-WARMUP_DURATION    = 18.0       # seconds — activity signals tween from calm to real data
+# Short smoothstep fade that suppresses first-tick noise and prevents
+# audio pops on market switch. Decoupled from sensitivity-window fill:
+# the backfill seeds the scorer's price history on pin, so window-based
+# signals reach full magnitude immediately and this fade is purely an
+# audio-domain ease-in, not a data-readiness gate.
+WARMUP_DURATION    = 4.0        # seconds
 
 # ── Browse categories ──────────────────────────────────
 # Tag IDs for the Browse tabs in the web UI

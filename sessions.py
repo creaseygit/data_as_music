@@ -45,6 +45,12 @@ class ClientSession:
         # Warmup: timestamp when current market was selected
         self._market_start_time: float = 0.0
 
+        # Max sensitivity-window entries for the current market, or None
+        # for markets with no short-lifetime cap. Set on pin from the
+        # market's remaining lifetime so a 5-min market never demands an
+        # 8-min window.
+        self._market_window_cap: int | None = None
+
     def reset_event_state(self):
         """Reset event baselines (e.g. after market switch)."""
         self._prev_heat = 0.0
@@ -56,6 +62,7 @@ class ClientSession:
         self._ema_slow = 0.5
         self._last_whale_check = 0.0
         self._market_start_time = time.monotonic()
+        self._market_window_cap = None
 
 
 class SessionManager:

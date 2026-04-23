@@ -128,6 +128,33 @@ def _sensitivity_window(sensitivity: float) -> int:
     return max(4, int(160 * (15 / 160) ** sensitivity))
 
 
+def _compute_window_cap(market: dict | None) -> int | None:
+    """Max sensitivity-window entries appropriate for a market's lifetime.
+
+    Returns None when the market has no end_date or more than an hour of life
+    left — those are long-lived and the regular sensitivity curve is fine.
+
+    For short-lived markets (< 1 hour remaining at pin time, e.g. 5-min and
+    15-min live-finance contracts), caps the window at half the remaining
+    lifetime so the rolling buffer can actually fill before the market
+    resolves. Floor of 10 entries (30s) keeps signals meaningful on the
+    last-minute-of-a-5min-market edge case.
+    """
+    if not market:
+        return None
+    end_str = market.get("end_date")
+    if not end_str:
+        return None
+    try:
+        end_dt = datetime.fromisoformat(end_str.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+    remaining = (end_dt - datetime.now(timezone.utc)).total_seconds()
+    if remaining <= 0 or remaining > 3600:
+        return None
+    return max(10, int(remaining / 2 / DATA_PUSH_INTERVAL))
+
+
 def _warmup_factor(session: ClientSession) -> float:
     """Smooth 0→1 tween over WARMUP_DURATION seconds since market switch.
     Uses smoothstep (3t²-2t³) for a gradual ease-in that reaches 1.0
@@ -232,6 +259,8 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
     # ── Sensitivity configuration ─────────────────────────────
     sens_exp = _sensitivity_exponent(session.sensitivity)
     sens_window = _sensitivity_window(session.sensitivity)
+    if session._market_window_cap is not None:
+        sens_window = min(sens_window, session._market_window_cap)
     sens_window_seconds = sens_window * DATA_PUSH_INTERVAL
 
     # ── Rotation: reset per-session state when the market changes ──
@@ -394,6 +423,7 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
         "sensitivity": round(session.sensitivity, 4),
         "window_seconds": sens_window_seconds,
         "window_fill": round(window_fill, 4),
+        "warmup_factor": round(w, 4),
     }
     return data, events
 
@@ -476,11 +506,26 @@ async def _pin_market_for_session(session: ClientSession, slug: str):
     session._prev_asset = aid
     session._prev_price = 0.5
     session._current_tone = 1
+    session._market_window_cap = _compute_window_cap(market)
 
     # Watch and subscribe if needed
     is_first = state.sessions.watch_market(session.client_id, aid)
     if is_first and state.feed and aid not in state.feed.subscribed:
         await state.feed.update_subscriptions(add=[aid], remove=[])
+
+    # Seed price history from the CLOB so window-based signals have data
+    # on the first broadcast tick. Awaited (not fire-and-forget) so the
+    # history is in place before the next tick — adds ~0.5-1s to pin
+    # latency but avoids a half-populated buffer on the first frame.
+    # Returns 0 for freshly-opened short-lived markets (live finance);
+    # the adaptive-window cap handles those.
+    import market.clob_history as clob_history
+    try:
+        seeded = await clob_history.backfill_scorer(state.scorer, aid)
+        if seeded:
+            print(f"[WS:{session.client_id}] Backfilled {seeded} price points for {slug}", flush=True)
+    except Exception as e:
+        print(f"[WS:{session.client_id}] Backfill error for {slug}: {e}", flush=True)
 
     print(f"[WS:{session.client_id}] Pinned: {slug} (asset {aid[:8]}...)", flush=True)
 
