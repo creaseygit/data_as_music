@@ -664,6 +664,10 @@ function onWsMarketInfo(market) {
   document.getElementById('url-status').textContent = '';
   log('Now playing: ' + convertETtoLocal(market.question));
   if (activeTab && browseCache[activeTab]) renderBrowse(browseCache[activeTab]);
+
+  if (audioRunning) {
+    audioEngine.onMarketInfo(market);
+  }
 }
 
 function onWsEvent(msg) {

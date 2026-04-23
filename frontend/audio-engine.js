@@ -11,6 +11,7 @@ const audioEngine = (() => {
   let masterVolume = 0.7;
   let _masterGainNode = null;  // Web Audio GainNode on master output
   let latestData = {};
+  let latestMarket = {};         // most recent market_info payload
   let _targetData = {};          // raw server values — latestData slides toward these
   let _lastTrackPat = null;  // track pattern identity — skip .play() when unchanged
 
@@ -401,6 +402,18 @@ const audioEngine = (() => {
     }
   }
 
+  function onMarketInfo(market) {
+    const prev = latestMarket;
+    latestMarket = market || {};
+    if (playing && currentTrackDef?.onMarketChange) {
+      try {
+        currentTrackDef.onMarketChange(latestMarket, prev);
+      } catch (e) {
+        console.warn('[Audio] onMarketChange error:', e);
+      }
+    }
+  }
+
   /** Reset damping so next data update snaps to target instantly.
    *  Call after a WebSocket reconnect to avoid a 27s slide from stale values. */
   function resetDamping() {
@@ -456,13 +469,14 @@ const audioEngine = (() => {
   function getCurrentTrackName() { return currentTrackName; }
   function getLatestData() { return { ...latestData }; }
   function getTargetData() { return { ..._targetData }; }
+  function getLatestMarket() { return { ...latestMarket }; }
   function isPlaying() { return playing; }
 
   return {
-    init, selectTrack, stop, setVolume, onMarketData,
+    init, selectTrack, stop, setVolume, onMarketData, onMarketInfo,
     handleEvent, registerTrack, resumeIfSuspended, resetDamping,
     getTrackRegistry, getCurrentTrack, getCurrentTrackName,
-    getLatestData, getTargetData, isPlaying,
+    getLatestData, getTargetData, getLatestMarket, isPlaying,
   };
 })();
 
