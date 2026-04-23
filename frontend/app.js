@@ -208,6 +208,12 @@ function onTrackChange() {
   }
   wsClient.send({ action: 'track', name: track });
   updateHash();
+  _renderVoiceRack();
+  if (_marketStartMs) {
+    const reg = audioEngine.getTrackRegistry?.();
+    const label = reg?.[track]?.label || track;
+    _pushTicker('Track → ' + label, 'start');
+  }
 }
 
 // ── Volume (client-side only) ──
@@ -226,18 +232,6 @@ let sensTimer = null;
 function onSensitivityChange(rawVal) {
   const pct = parseInt(rawVal);
   document.getElementById('sensitivity-label').textContent = pct + '%';
-  // Immediate visual feedback for the signal strips — recompute the
-  // sensitivity-dependent overlay (window labels, raw-value ticks) from
-  // cached data so the user sees the slider "take effect" before the
-  // next server push (up to 3s away).
-  if (_lastSignalData) {
-    const sens = pct / 100;
-    _updateSensitivityOverlay({
-      ..._lastSignalData,
-      sensitivity: sens,
-      window_seconds: _computeWindowSeconds(sens),
-    });
-  }
   if (sensTimer) clearTimeout(sensTimer);
   sensTimer = setTimeout(() => {
     wsClient.send({ action: 'sensitivity', value: pct / 100 });
@@ -471,145 +465,132 @@ async function onWsStatus(data) {
   applyHashOnce();
 }
 
-// ── Signal strips: visual state of signals + sensitivity + warmup ──
-// Activity signals get a raw-value tick (where the bar would read at
-// neutral sensitivity). Window-scaled signals get an indicator showing
-// the target window and how much of it is actually buffered — visualises
-// the up-to-8-minute warmup as the fill grows toward the target.
-const _STRIP_DEFS = [
-  { id: 'price',      label: 'Price',       type: 'price' },
-  { id: 'price_move', label: 'Price Move',  type: 'signed',   hasWindow: true },
-  { id: 'momentum',   label: 'Momentum',    type: 'signed',   hasWindow: true },
-  { id: 'volatility', label: 'Volatility',  type: 'activity', hasWindow: true },
-  { id: 'divider' },
-  { id: 'heat',       label: 'Heat',        type: 'activity', hasRawTick: true },
-  { id: 'velocity',   label: 'Velocity',    type: 'activity', hasRawTick: true },
-  { id: 'trade_rate', label: 'Trade Rate',  type: 'activity', hasRawTick: true },
-  { id: 'spread',     label: 'Spread',      type: 'activity', hasRawTick: true },
-];
+// ── Voice rack + signal ticker ─────────────────────────────
+// The Now-Playing panel shows each voice of the current track as a live
+// meter (user gain × track energy), plus a rolling plain-English log of
+// events. Voices are rebuilt when the selected track changes.
+// The meter is an honest approximation: it reflects what the track as a
+// whole is doing (heat / price_move / momentum), not per-voice detail
+// the engine doesn't know. Solo/mute from the Sandbox shows as muted.
 
-let _stripsBuiltForSlug = null;
-let _lastSignalData = null;
+let _voiceRackBuiltFor = null;
+let _marketStartMs = null;
+let _warmupAnnounced = false;
+const TICKER_MAX = 12;
 
-function _fmtWindow(seconds) {
-  if (seconds == null) return '—';
-  if (seconds < 60) return Math.round(seconds) + 's';
-  const m = seconds / 60;
+function _currentTrackDef() {
+  if (typeof audioEngine === 'undefined') return null;
+  const name = audioEngine.getCurrentTrackName?.()
+    || document.getElementById('track-select')?.value;
+  if (!name) return null;
+  const reg = audioEngine.getTrackRegistry?.();
+  return reg ? reg[name] : null;
+}
+
+function _trackEnergy(data) {
+  const h = Math.max(0, Math.min(1, data.heat ?? 0));
+  const pm = Math.abs(data.price_move ?? 0);
+  const mom = Math.abs(data.momentum ?? 0);
+  return Math.max(h, pm, mom);
+}
+
+function _renderVoiceRack() {
+  const container = document.getElementById('np-voices');
+  if (!container) return;
+  const track = _currentTrackDef();
+  _voiceRackBuiltFor = track ? track.name : null;
+  const voices = track?.voices ? Object.entries(track.voices) : [];
+
+  if (!voices.length) {
+    container.innerHTML = '<div class="voice-rack-empty">This track runs on its own logic — no voices to meter.</div>';
+    return;
+  }
+
+  container.innerHTML = voices.map(([id, v]) => `
+    <div class="voice-row-np" id="vrow-${id}">
+      <span class="voice-row-label">${v.label}</span>
+      <div class="voice-row-meter"><div class="voice-row-meter-fill" id="vfill-${id}"></div></div>
+      <span class="voice-row-state" id="vstate-${id}">·</span>
+    </div>
+  `).join('');
+}
+
+function _updateVoiceRack(data) {
+  const track = _currentTrackDef();
+  if (!track || !track.voices) return;
+
+  const expected = track.name;
+  if (_voiceRackBuiltFor !== expected) _renderVoiceRack();
+
+  const energy = _trackEnergy(data);
+  // Mild expansion so low activity still reads as "present"
+  const shaped = Math.pow(energy, 0.7);
+
+  for (const id of Object.keys(track.voices)) {
+    const gain = track.getGain ? track.getGain(id) : 1.0;
+    const level = Math.max(0, Math.min(1, gain * shaped));
+    const fill = document.getElementById('vfill-' + id);
+    const state = document.getElementById('vstate-' + id);
+    const row = document.getElementById('vrow-' + id);
+    if (fill) fill.style.width = (level * 100) + '%';
+    if (state) state.textContent = gain === 0 ? 'off' : (level < 0.05 ? '·' : Math.round(level * 100));
+    if (row) row.classList.toggle('voice-row-muted', gain === 0);
+  }
+}
+
+function _fmtSeconds(s) {
+  if (s < 60) return Math.round(s) + 's';
+  const m = s / 60;
   return (m >= 10 ? Math.round(m) : m.toFixed(1)) + 'm';
 }
-// Mirror of server _sensitivity_window — for live slider feedback
-function _computeWindowSeconds(sens) {
-  const entries = Math.max(4, Math.floor(160 * Math.pow(15 / 160, sens)));
-  return entries * 3;
-}
-// Mirror of server _sensitivity_exponent
-function _sensExponent(s) { return Math.pow(4, 1 - 2 * s); }
-// Invert the power curve: given the shaped value the bar displays, find
-// what the raw value must have been. The gap between tick and bar end IS
-// the sensitivity effect made visible.
-function _rawFromShaped(shaped, sens) {
-  if (shaped <= 0) return 0;
-  return Math.pow(shaped, 1 / _sensExponent(sens));
-}
 
-function _ensureStripsBuilt(container) {
-  if (_stripsBuiltForSlug === currentMarketSlug) return;
-  _stripsBuiltForSlug = currentMarketSlug;
-  container.innerHTML = _STRIP_DEFS.map(d => {
-    if (d.id === 'divider') return '<div class="signal-divider"></div>';
-    const label = '<span class="signal-label">' + d.label + '</span>';
-    if (d.type === 'price') {
-      return '<div class="signal-strip" id="strip-price">'
-        + label
-        + '<div class="signal-price-track" id="strip-price-track">'
-        +   '<div class="signal-price-needle" id="strip-price-needle" style="left:50%"></div>'
-        + '</div>'
-        + '<div class="signal-price-label" id="strip-price-label">—</div>'
-        + '</div>';
+function _updateWarmupBanner(data) {
+  const banner = document.getElementById('np-warmup');
+  if (!banner) return;
+  const fill = data.window_fill ?? 1;
+  if (fill >= 0.98) {
+    banner.style.display = 'none';
+    if (!_warmupAnnounced && _marketStartMs) {
+      _pushTicker('All signals ready', 'ready');
+      _warmupAnnounced = true;
     }
-    const winHtml = d.hasWindow
-      ? '<div class="signal-window">'
-        +   '<div class="signal-window-bar"><div class="signal-window-fill" id="win-fill-' + d.id + '"></div></div>'
-        +   '<span class="signal-window-label" id="win-label-' + d.id + '">—</span>'
-        + '</div>'
-      : '';
-    const cls = d.hasWindow ? 'signal-strip' : 'signal-strip no-window';
-    let bar;
-    if (d.type === 'signed') {
-      bar = '<div class="signal-bar signal-bar-signed">'
-        +   '<div class="signal-fill-signed" id="fill-' + d.id + '"></div>'
-        + '</div>';
-    } else {
-      bar = '<div class="signal-bar">'
-        +   '<div class="signal-fill" id="fill-' + d.id + '"></div>'
-        +   (d.hasRawTick ? '<div class="signal-raw-tick" id="raw-' + d.id + '" style="left:0%"></div>' : '')
-        + '</div>';
-    }
-    return '<div class="' + cls + '" id="strip-' + d.id + '">' + label + bar + winHtml + '</div>';
-  }).join('');
+    return;
+  }
+  banner.style.display = '';
+  const winSec = data.window_seconds ?? 150;
+  const have = winSec * fill;
+  banner.textContent = `Gathering data · ${_fmtSeconds(have)} / ${_fmtSeconds(winSec)}`;
 }
 
-function _updateSignalStrips(data) {
-  const priceNeedle = document.getElementById('strip-price-needle');
-  const priceLabel = document.getElementById('strip-price-label');
-  const toneClass = data.tone === 1 ? 'bullish' : 'bearish';
-  if (priceNeedle) priceNeedle.style.left = (data.price * 100) + '%';
-  if (priceLabel) {
-    priceLabel.className = 'signal-price-label ' + toneClass;
-    priceLabel.textContent = (data.price * 100).toFixed(0) + '%';
-  }
-
-  for (const id of ['price_move', 'momentum']) {
-    const fill = document.getElementById('fill-' + id);
-    if (!fill) continue;
-    const v = data[id] ?? 0;
-    const mag = Math.min(1, Math.abs(v)) * 50;
-    if (v >= 0) {
-      fill.style.left = '50%';
-      fill.style.width = mag + '%';
-      fill.classList.remove('negative');
-    } else {
-      fill.style.left = (50 - mag) + '%';
-      fill.style.width = mag + '%';
-      fill.classList.add('negative');
-    }
-  }
-
-  for (const id of ['volatility', 'heat', 'velocity', 'trade_rate', 'spread']) {
-    const fill = document.getElementById('fill-' + id);
-    if (fill) fill.style.width = (Math.max(0, Math.min(1, data[id] ?? 0)) * 100) + '%';
-  }
-
-  _updateSensitivityOverlay(data);
+function _elapsedStamp() {
+  if (!_marketStartMs) return '00:00';
+  const s = Math.max(0, Math.floor((Date.now() - _marketStartMs) / 1000));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return String(m).padStart(2, '0') + ':' + String(r).padStart(2, '0');
 }
 
-function _updateSensitivityOverlay(data) {
-  const sens = data.sensitivity ?? 0.5;
-  const windowSec = data.window_seconds;
-  const windowFill = data.window_fill ?? 1;
-  const winLabel = _fmtWindow(windowSec);
-  for (const id of ['price_move', 'momentum', 'volatility']) {
-    const lab = document.getElementById('win-label-' + id);
-    const fil = document.getElementById('win-fill-' + id);
-    if (lab) lab.textContent = winLabel;
-    if (fil) fil.style.width = (windowFill * 100) + '%';
-  }
-  for (const id of ['heat', 'velocity', 'trade_rate', 'spread']) {
-    const tick = document.getElementById('raw-' + id);
-    if (!tick) continue;
-    const raw = _rawFromShaped(data[id] ?? 0, sens);
-    tick.style.left = (Math.max(0, Math.min(1, raw)) * 100) + '%';
-  }
-}
-
-function _flashStrip(id) {
-  const el = document.getElementById('strip-' + id);
+function _pushTicker(text, kind) {
+  const el = document.getElementById('np-ticker');
   if (!el) return;
-  el.classList.remove('flash');
-  // Force reflow so the animation restarts if the same strip re-flashes
-  void el.offsetWidth;
-  el.classList.add('flash');
-  setTimeout(() => el.classList.remove('flash'), 700);
+  const line = document.createElement('div');
+  line.className = 'ticker-entry' + (kind ? ' ticker-' + kind : '');
+  const time = document.createElement('span');
+  time.className = 'ticker-time';
+  time.textContent = _elapsedStamp();
+  const body = document.createElement('span');
+  body.className = 'ticker-text';
+  body.textContent = text;
+  line.appendChild(time);
+  line.appendChild(body);
+  el.insertBefore(line, el.firstChild);
+  while (el.children.length > TICKER_MAX) el.removeChild(el.lastChild);
+}
+
+function _resetTicker() {
+  const el = document.getElementById('np-ticker');
+  if (el) el.innerHTML = '';
+  _warmupAnnounced = false;
 }
 
 function onWsMarketData(data) {
@@ -617,16 +598,14 @@ function onWsMarketData(data) {
   if (!np || np.style.display === 'none') return;
 
   const mood = document.getElementById('np-mood');
-  const npData = document.getElementById('np-data');
-  if (!mood || !npData) return;
+  if (!mood) return;
 
   const toneStr = data.tone === 1 ? 'bullish' : 'bearish';
   mood.textContent = toneStr.toUpperCase() + '  ' + (data.price * 100).toFixed(1) + '%';
   mood.className = 'np-mood ' + toneStr;
 
-  _ensureStripsBuilt(npData);
-  _updateSignalStrips(data);
-  _lastSignalData = data;
+  _updateVoiceRack(data);
+  _updateWarmupBanner(data);
 
   if (audioRunning) {
     audioEngine.onMarketData(data);
@@ -643,11 +622,13 @@ function onWsMarketInfo(market) {
     np.style.display = 'none';
     currentMarketSlug = null;
     currentEventSlug = null;
+    _marketStartMs = null;
     updateHash();
     updateAudioUI();
     if (activeTab && browseCache[activeTab]) renderBrowse(browseCache[activeTab]);
     return;
   }
+  const slugChanged = market.slug !== currentMarketSlug;
   np.style.display = '';
   currentMarketSlug = market.slug;
   currentEventSlug = market.event_slug || null;
@@ -665,6 +646,13 @@ function onWsMarketInfo(market) {
   log('Now playing: ' + convertETtoLocal(market.question));
   if (activeTab && browseCache[activeTab]) renderBrowse(browseCache[activeTab]);
 
+  if (slugChanged) {
+    _marketStartMs = Date.now();
+    _resetTicker();
+    _renderVoiceRack();
+    _pushTicker('Now playing: ' + convertETtoLocal(market.question), 'start');
+  }
+
   if (audioRunning) {
     audioEngine.onMarketInfo(market);
   }
@@ -674,14 +662,26 @@ function onWsEvent(msg) {
   if (audioRunning) {
     audioEngine.handleEvent(msg);
   }
-  if (msg.event === 'spike') { log('Event: heat spike'); _flashStrip('heat'); }
-  if (msg.event === 'price_move') {
-    log('Event: price ' + (msg.direction > 0 ? 'up' : 'down'));
-    _flashStrip('price_move');
-    _flashStrip('price');
+  if (msg.event === 'spike') {
+    log('Event: heat spike');
+    const mag = msg.magnitude ? ' (' + msg.magnitude.toFixed(2) + ')' : '';
+    _pushTicker('Heat spike' + mag, 'spike');
   }
-  if (msg.event === 'whale') { log('Event: whale trade'); _flashStrip('heat'); _flashStrip('price'); }
-  if (msg.event === 'resolved') { log('Event: market resolved (' + (msg.result > 0 ? 'Yes' : 'No') + ')'); _flashStrip('price'); }
+  if (msg.event === 'price_move') {
+    const dir = msg.direction > 0 ? 'up' : 'down';
+    log('Event: price ' + dir);
+    const mag = msg.magnitude ? ' (' + (msg.magnitude * 100).toFixed(1) + '%)' : '';
+    _pushTicker('Price moved ' + dir + mag, 'move');
+  }
+  if (msg.event === 'whale') {
+    log('Event: whale trade');
+    _pushTicker('Whale trade', 'whale');
+  }
+  if (msg.event === 'resolved') {
+    const res = msg.result > 0 ? 'Yes' : 'No';
+    log('Event: market resolved (' + res + ')');
+    _pushTicker('Market resolved: ' + res, 'resolved');
+  }
 }
 
 function onWsListeners(count) {
