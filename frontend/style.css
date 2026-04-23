@@ -211,8 +211,59 @@ input[type="range"]::-moz-range-thumb {
 /* Group divider */
 .signal-divider { border-top: 1px solid #1a1a2e; margin: 2px 2px; }
 
-/* ── Voice rack + signal ticker ──────────────────────────── */
+/* ── Price bar + voice rack + warmup banner ──────────────── */
 .np-signals { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.np-price {
+  display: grid;
+  grid-template-columns: 60px 1fr 46px;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 4px;
+}
+.np-price-label {
+  font-size: 10px;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.np-price-track {
+  position: relative;
+  height: 10px;
+  background: #0a0a12;
+  border: 1px solid #1a1a2e;
+  border-radius: 2px;
+}
+.np-price-needle {
+  position: absolute;
+  top: -3px; bottom: -3px;
+  width: 2px;
+  background: #fff;
+  box-shadow: 0 0 4px rgba(255,255,255,0.5);
+  transition: left 0.5s ease;
+}
+.np-price-value {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: #aaa;
+}
+.np-price-value.bullish { color: #00ff88; }
+.np-price-value.bearish { color: #ff6644; }
+.np-section {
+  border-top: 1px solid #1a1a2e;
+  padding-top: 10px;
+  margin-top: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.np-section-heading {
+  font-size: 10px;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  padding: 0 4px;
+}
 .np-warmup {
   font-size: 11px;
   color: #ff9900;
@@ -222,6 +273,12 @@ input[type="range"]::-moz-range-thumb {
   padding: 6px 10px;
   letter-spacing: 0.3px;
   font-variant-numeric: tabular-nums;
+  transition: color 0.4s, background 0.4s, border-color 0.4s;
+}
+.np-warmup.tuned {
+  color: #00ff88;
+  background: rgba(0,255,136,0.06);
+  border-color: rgba(0,255,136,0.25);
 }
 .voice-rack { display: flex; flex-direction: column; gap: 4px; }
 .voice-rack-empty { color: #555; font-size: 12px; padding: 6px 4px; }
@@ -264,34 +321,6 @@ input[type="range"]::-moz-range-thumb {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
-.signal-ticker {
-  max-height: 120px;
-  overflow-y: auto;
-  background: #08080c;
-  border: 1px solid #1a1a2e;
-  border-radius: 3px;
-  padding: 6px 8px;
-  font-size: 11px;
-  color: #888;
-  font-variant-numeric: tabular-nums;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.signal-ticker:empty::before {
-  content: 'Listening…';
-  color: #333;
-  font-style: italic;
-}
-.ticker-entry { display: flex; gap: 8px; align-items: baseline; }
-.ticker-time { color: #444; min-width: 38px; }
-.ticker-text { color: #aaa; }
-.ticker-whale .ticker-text    { color: #ffcc00; }
-.ticker-spike .ticker-text    { color: #ff9900; }
-.ticker-move .ticker-text     { color: #00aaff; }
-.ticker-resolved .ticker-text { color: #ff6644; }
-.ticker-ready .ticker-text    { color: #00ff88; }
-.ticker-start .ticker-text    { color: #ccc; }
 
 .url-row { display: flex; gap: 8px; margin-bottom: 12px; }
 .url-row input {
@@ -375,6 +404,7 @@ input[type="range"]::-moz-range-thumb {
   .signal-strip { grid-template-columns: 70px 1fr 78px; gap: 8px; }
   .signal-strip.no-window { grid-template-columns: 70px 1fr; }
   .voice-row-np { grid-template-columns: 90px 1fr 32px; gap: 8px; }
+  .np-price { grid-template-columns: 48px 1fr 40px; gap: 8px; }
   .signal-window-bar { max-width: 36px; }
   .signal-window-label { min-width: 32px; font-size: 9px; }
 

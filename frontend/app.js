@@ -209,11 +209,6 @@ function onTrackChange() {
   wsClient.send({ action: 'track', name: track });
   updateHash();
   _renderVoiceRack();
-  if (_marketStartMs) {
-    const reg = audioEngine.getTrackRegistry?.();
-    const label = reg?.[track]?.label || track;
-    _pushTicker('Track → ' + label, 'start');
-  }
 }
 
 // ── Volume (client-side only) ──
@@ -465,18 +460,15 @@ async function onWsStatus(data) {
   applyHashOnce();
 }
 
-// ── Voice rack + signal ticker ─────────────────────────────
+// ── Voice rack + warmup banner ─────────────────────────────
 // The Now-Playing panel shows each voice of the current track as a live
-// meter (user gain × track energy), plus a rolling plain-English log of
-// events. Voices are rebuilt when the selected track changes.
-// The meter is an honest approximation: it reflects what the track as a
-// whole is doing (heat / price_move / momentum), not per-voice detail
-// the engine doesn't know. Solo/mute from the Sandbox shows as muted.
+// meter (user gain × track energy). Voices are rebuilt when the selected
+// track changes. The meter is an honest approximation: it reflects what
+// the track as a whole is doing (heat / price_move / momentum), not
+// per-voice detail the engine doesn't know. Solo/mute from the Sandbox
+// shows as muted.
 
 let _voiceRackBuiltFor = null;
-let _marketStartMs = null;
-let _warmupAnnounced = false;
-const TICKER_MAX = 12;
 
 function _currentTrackDef() {
   if (typeof audioEngine === 'undefined') return null;
@@ -544,53 +536,32 @@ function _fmtSeconds(s) {
   return (m >= 10 ? Math.round(m) : m.toFixed(1)) + 'm';
 }
 
+function _updatePriceBar(data) {
+  const needle = document.getElementById('np-price-needle');
+  const value = document.getElementById('np-price-value');
+  const p = Math.max(0, Math.min(1, data.price ?? 0.5));
+  if (needle) needle.style.left = (p * 100) + '%';
+  if (value) {
+    const tone = data.tone === 1 ? 'bullish' : 'bearish';
+    value.className = 'np-price-value ' + tone;
+    value.textContent = (p * 100).toFixed(0) + '%';
+  }
+}
+
 function _updateWarmupBanner(data) {
   const banner = document.getElementById('np-warmup');
   if (!banner) return;
+  banner.style.display = '';
   const fill = data.window_fill ?? 1;
   if (fill >= 0.98) {
-    banner.style.display = 'none';
-    if (!_warmupAnnounced && _marketStartMs) {
-      _pushTicker('All signals ready', 'ready');
-      _warmupAnnounced = true;
-    }
+    banner.classList.add('tuned');
+    banner.textContent = 'Tuned in';
     return;
   }
-  banner.style.display = '';
+  banner.classList.remove('tuned');
   const winSec = data.window_seconds ?? 150;
-  const have = winSec * fill;
-  banner.textContent = `Gathering data · ${_fmtSeconds(have)} / ${_fmtSeconds(winSec)}`;
-}
-
-function _elapsedStamp() {
-  if (!_marketStartMs) return '00:00';
-  const s = Math.max(0, Math.floor((Date.now() - _marketStartMs) / 1000));
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  return String(m).padStart(2, '0') + ':' + String(r).padStart(2, '0');
-}
-
-function _pushTicker(text, kind) {
-  const el = document.getElementById('np-ticker');
-  if (!el) return;
-  const line = document.createElement('div');
-  line.className = 'ticker-entry' + (kind ? ' ticker-' + kind : '');
-  const time = document.createElement('span');
-  time.className = 'ticker-time';
-  time.textContent = _elapsedStamp();
-  const body = document.createElement('span');
-  body.className = 'ticker-text';
-  body.textContent = text;
-  line.appendChild(time);
-  line.appendChild(body);
-  el.insertBefore(line, el.firstChild);
-  while (el.children.length > TICKER_MAX) el.removeChild(el.lastChild);
-}
-
-function _resetTicker() {
-  const el = document.getElementById('np-ticker');
-  if (el) el.innerHTML = '';
-  _warmupAnnounced = false;
+  const remaining = winSec * (1 - fill);
+  banner.textContent = `Tuning in · ready in ${_fmtSeconds(remaining)}`;
 }
 
 function onWsMarketData(data) {
@@ -604,6 +575,7 @@ function onWsMarketData(data) {
   mood.textContent = toneStr.toUpperCase() + '  ' + (data.price * 100).toFixed(1) + '%';
   mood.className = 'np-mood ' + toneStr;
 
+  _updatePriceBar(data);
   _updateVoiceRack(data);
   _updateWarmupBanner(data);
 
@@ -622,7 +594,6 @@ function onWsMarketInfo(market) {
     np.style.display = 'none';
     currentMarketSlug = null;
     currentEventSlug = null;
-    _marketStartMs = null;
     updateHash();
     updateAudioUI();
     if (activeTab && browseCache[activeTab]) renderBrowse(browseCache[activeTab]);
@@ -646,12 +617,7 @@ function onWsMarketInfo(market) {
   log('Now playing: ' + convertETtoLocal(market.question));
   if (activeTab && browseCache[activeTab]) renderBrowse(browseCache[activeTab]);
 
-  if (slugChanged) {
-    _marketStartMs = Date.now();
-    _resetTicker();
-    _renderVoiceRack();
-    _pushTicker('Now playing: ' + convertETtoLocal(market.question), 'start');
-  }
+  if (slugChanged) _renderVoiceRack();
 
   if (audioRunning) {
     audioEngine.onMarketInfo(market);
@@ -662,26 +628,10 @@ function onWsEvent(msg) {
   if (audioRunning) {
     audioEngine.handleEvent(msg);
   }
-  if (msg.event === 'spike') {
-    log('Event: heat spike');
-    const mag = msg.magnitude ? ' (' + msg.magnitude.toFixed(2) + ')' : '';
-    _pushTicker('Heat spike' + mag, 'spike');
-  }
-  if (msg.event === 'price_move') {
-    const dir = msg.direction > 0 ? 'up' : 'down';
-    log('Event: price ' + dir);
-    const mag = msg.magnitude ? ' (' + (msg.magnitude * 100).toFixed(1) + '%)' : '';
-    _pushTicker('Price moved ' + dir + mag, 'move');
-  }
-  if (msg.event === 'whale') {
-    log('Event: whale trade');
-    _pushTicker('Whale trade', 'whale');
-  }
-  if (msg.event === 'resolved') {
-    const res = msg.result > 0 ? 'Yes' : 'No';
-    log('Event: market resolved (' + res + ')');
-    _pushTicker('Market resolved: ' + res, 'resolved');
-  }
+  if (msg.event === 'spike') log('Event: heat spike');
+  if (msg.event === 'price_move') log('Event: price ' + (msg.direction > 0 ? 'up' : 'down'));
+  if (msg.event === 'whale') log('Event: whale trade');
+  if (msg.event === 'resolved') log('Event: market resolved (' + (msg.result > 0 ? 'Yes' : 'No') + ')');
 }
 
 function onWsListeners(count) {
