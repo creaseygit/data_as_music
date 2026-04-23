@@ -25,12 +25,11 @@
 // Direction follows the sign of `price_move`.
 // Magnitude of |price_move| selects run length and scales gain.
 //
-// The track also applies its own sensitivity-aware hard gate on top
-// of the server's window-scaled signal. At sens=1.0 any detectable
-// move plays; at sens=0.0 only near-saturated moves (big for the
-// current window, ~10¢ over 8 min) trigger a run. Between, gate
-// interpolates linearly — default sens=0.5 fires on ~3¢-over-2.5min
-// moves.
+// The track applies a light sensitivity-aware hard gate on top of the
+// server's window-scaled signal. The gate scales gently — 0.05 at
+// sens=1.0 up to 0.25 at sens=0.0 — so the sensitivity slider retains
+// meaning without suppressing most moves the server has already decided
+// are meaningful. The server's edge detection handles noise rejection.
 // category: 'alert', label: 'Weather Vane'
 
 const weatherVane = (() => {
@@ -117,13 +116,12 @@ const weatherVane = (() => {
       const pmQ = q(pm, 0.05);
       const absPmQ = Math.abs(pmQ);
 
-      // Sensitivity-aware hard gate. The server already scales the
-      // price_move window and max-magnitude with sensitivity, so a
-      // given post-signal value means "this fraction of a big move for
-      // the current window." We layer our own gate on top: at sens=1
-      // any detectable move plays; at sens=0 only near-saturated moves
-      // (≥90% of window-appropriate max) get through.
-      const gateThresh = 0.05 + (1 - sens) * 0.85;
+      // Sensitivity-aware hard gate. Shallow curve — 0.05 (sens=1) to
+      // 0.25 (sens=0) — so the slider's main job is server-side window
+      // sizing, not gating. The server's edge detection already zeroes
+      // out flat/decaying moves, so even a low gate threshold doesn't
+      // produce constant firing on jittery books.
+      const gateThresh = 0.05 + (1 - sens) * 0.20;
 
       const gainKey = this.getGain('melody').toFixed(2);
       const sensKey = sens.toFixed(2);

@@ -19,10 +19,15 @@ const audioEngine = (() => {
   // Smooths continuous musical signals via EMA so the music never pops
   // between states.  Discrete/positional values pass through instantly.
   // Alpha 0.4 per 3s tick ≈ reaches 90% of a jump in ~10 seconds.
+  //
+  // `price_move` is deliberately NOT damped: it is an edge/event signal
+  // (the server already zeroes it when magnitude is flat or decaying),
+  // and alert-style tracks like Weather Vane need it to reach them
+  // unsmoothed so moves register as events rather than slow slides.
   const DAMPING_ALPHA = 0.4;
   const DAMPED_SIGNALS = new Set([
     'heat', 'velocity', 'trade_rate', 'spread',
-    'volatility', 'momentum', 'price_move',
+    'volatility', 'momentum',
   ]);
 
   // ── Cycle-boundary buffering ──

@@ -1,16 +1,23 @@
 // ── Diagnostics ──────────────────────────────────────
 // Silent "track" that speaks system status via the browser's built-in
 // SpeechSynthesis API. Use it when you want to walk away from the
-// screen and still know — audibly — that the data pipeline is alive
-// and that live-finance market rotation is still happening.
+// screen and still know — audibly — that the data pipeline is alive,
+// or when you want to measure the data pipeline's real latency by
+// hearing price changes as they arrive from the server.
 //
 // - On each live-finance rotation or manual pick, announces the new
 //   market title.
-// - Announces a short "data OK" heartbeat with current price on a
-//   sensitivity-controlled cadence: sens=0 → every ~5 minutes,
-//   sens=1 → every ~15 seconds, sens=0.5 → ~2 minutes.
-// - Silence means something is wrong: the heartbeat fires from data
-//   arrivals, so if data stops, announcements stop.
+// - On every data tick where price has moved ≥ 0.5¢ since the last
+//   announcement, speaks the new price percent ("fifty-two").
+// - As a fallback during stale/flat periods, a "data OK" heartbeat
+//   fires on a sensitivity-controlled cadence: sens=0 → every ~5 min,
+//   sens=1 → every ~15 s, sens=0.5 → ~2 min.
+// - Silence means something is wrong: all announcements fire from
+//   data arrivals, so if data stops, announcements stop.
+//
+// Utterance gating: never more than one per 5 s, and never overlap
+// an in-flight utterance. Price reads take ~2 s so 5 s between them
+// keeps the channel clear without feeling drawn-out.
 //
 // The audio engine holds a Web Lock (stops background-tab throttling)
 // and a Screen Wake Lock (stops OS idle sleep) while playing, so this
@@ -25,9 +32,19 @@ const diagnostics = (() => {
   const HEARTBEAT_MIN_SECS = 15;
   const HEARTBEAT_MAX_SECS = 300;
 
+  // Floor between any two utterances. The SpeechSynthesis queue cannot
+  // be reliably reasoned about, so we gate by wall time plus the .speaking
+  // flag rather than queueing.
+  const MIN_UTTERANCE_GAP_MS = 5000;
+
+  // Minimum price delta since last announcement that triggers a read.
+  // 0.005 = 0.5¢ on a 0–1 probability scale.
+  const PRICE_CHANGE_THRESHOLD = 0.005;
+
   let _lastSpokeAt = 0;
   let _lastMarketSlug = null;
   let _selectedVoice = null;
+  let _lastAnnouncedPrice = null;
 
   // SpeechSynthesisVoice has no gender field. Apple/Google English
   // female voices are identified by either "Female" in the name or
@@ -82,21 +99,29 @@ const diagnostics = (() => {
     }
   }
 
+  // Speak `text` iff the channel is idle and ≥ MIN_UTTERANCE_GAP_MS has
+  // elapsed since the last utterance. Returns true when the utterance was
+  // queued — callers use the return value to decide whether to advance
+  // their "last announced" state.
   function speak(text) {
     try {
       const synth = window.speechSynthesis;
-      if (!synth) return;
+      if (!synth) return false;
+      const now = Date.now();
+      if (synth.speaking) return false;
+      if (now - _lastSpokeAt < MIN_UTTERANCE_GAP_MS) return false;
       ensureVoice();
-      synth.cancel();
       const u = new SpeechSynthesisUtterance(text);
       if (_selectedVoice) u.voice = _selectedVoice;
       u.rate = 1.0;
       u.pitch = 1.0;
       u.volume = 1.0;
       synth.speak(u);
-      _lastSpokeAt = Date.now();
+      _lastSpokeAt = now;
+      return true;
     } catch (e) {
       console.warn('[diagnostics] speech failed:', e);
+      return false;
     }
   }
 
@@ -120,21 +145,39 @@ const diagnostics = (() => {
 
     init() {
       _lastMarketSlug = null;
+      _lastAnnouncedPrice = null;
+      _lastSpokeAt = 0;
       speak("Diagnostics active");
-      // Nudge the first heartbeat to fire ~20s in regardless of sensitivity,
-      // so the user gets quick confirmation the pipeline is actually live.
-      _lastSpokeAt = Date.now() - (HEARTBEAT_MAX_SECS - 20) * 1000;
     },
 
     evaluateCode(data) {
       const sens = data.sensitivity !== undefined ? data.sensitivity : 0.5;
-      const interval = HEARTBEAT_MIN_SECS
-        + (1 - sens) * (HEARTBEAT_MAX_SECS - HEARTBEAT_MIN_SECS);
+      const price = data.price || 0;
+      const pricePct = Math.round(price * 100);
       const now = Date.now();
-      if (now - _lastSpokeAt >= interval * 1000) {
-        const pricePct = Math.round((data.price || 0) * 100);
-        speak(`Data OK. Price ${pricePct}.`);
+
+      // Real-time price announcement: any ≥0.5¢ change since the last
+      // announcement triggers a read. The speak() gate (5s floor +
+      // skip-if-busy) throttles to at most one utterance every 5s even
+      // on rapidly moving markets, so we don't queue up a backlog.
+      const priceChanged =
+        _lastAnnouncedPrice === null ||
+        Math.abs(price - _lastAnnouncedPrice) >= PRICE_CHANGE_THRESHOLD;
+
+      if (priceChanged) {
+        if (speak(`${pricePct}`)) {
+          _lastAnnouncedPrice = price;
+        }
+      } else {
+        // No change — fall back to heartbeat so total silence means
+        // the data pipeline itself has stalled.
+        const heartbeatInterval = HEARTBEAT_MIN_SECS
+          + (1 - sens) * (HEARTBEAT_MAX_SECS - HEARTBEAT_MIN_SECS);
+        if (now - _lastSpokeAt >= heartbeatInterval * 1000) {
+          speak(`Data OK. Price ${pricePct}.`);
+        }
       }
+
       return "setcpm(20);\n$: silence;\n";
     },
 
@@ -142,6 +185,7 @@ const diagnostics = (() => {
       if (!market || !market.question) return;
       if (_lastMarketSlug === market.slug) return;
       _lastMarketSlug = market.slug;
+      _lastAnnouncedPrice = null;
       speak(`Switched to ${cleanForSpeech(market.question)}`);
     },
 
