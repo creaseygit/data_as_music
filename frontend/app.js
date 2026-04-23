@@ -746,6 +746,7 @@ function onWsError(msg) {
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) return;
   audioEngine.resumeIfSuspended();
+  audioEngine.reacquireScreenWakeLock();
   wsClient.ensureConnected();
 });
 

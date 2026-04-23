@@ -12,10 +12,11 @@
 // - Silence means something is wrong: the heartbeat fires from data
 //   arrivals, so if data stops, announcements stop.
 //
-// The audio engine holds a Web Lock and plays active audio while this
-// track runs, which prevents most browsers from throttling the tab in
-// the background. Laptop sleep will still pause everything; on wake
-// the WebSocket reconnects and a fresh announcement resumes.
+// The audio engine holds a Web Lock (stops background-tab throttling)
+// and a Screen Wake Lock (stops OS idle sleep) while playing, so this
+// track keeps announcing even if the laptop is left alone. Closing the
+// lid still hardware-sleeps the machine; on wake the WebSocket
+// reconnects and a fresh announcement resumes.
 // category: 'diagnostic', label: 'Diagnostics'
 
 const diagnostics = (() => {

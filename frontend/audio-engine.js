@@ -34,6 +34,7 @@ const audioEngine = (() => {
   let _playEpoch = 0;            // AudioContext time when playback started
   let _forceNextPlay = false;    // force pattern rebuild at next boundary
   let _wakeLockRelease = null;   // Web Lock release callback (prevents background throttling)
+  let _screenWakeLock = null;    // Screen Wake Lock sentinel (prevents system sleep)
 
   // Track registry — populated by track files calling audioEngine.registerTrack()
   const trackRegistry = {};
@@ -261,15 +262,46 @@ const audioEngine = (() => {
   // mere existence signals the tab is doing important work).
 
   function _acquireWakeLock() {
-    if (_wakeLockRelease) return;  // already held
-    if (!navigator.locks) return;  // Safari <15.4
-    const controller = new AbortController();
-    navigator.locks.request('dam_audio_playing', { signal: controller.signal }, () => {
-      // Return a promise that never resolves — holds the lock until aborted
-      return new Promise(() => {});
-    }).catch(() => {});  // AbortError when we release — expected
-    _wakeLockRelease = () => controller.abort();
-    console.log('[Audio] Web Lock acquired (background throttle protection)');
+    // Web Lock — stops the browser from throttling timers in background tabs.
+    if (!_wakeLockRelease && navigator.locks) {
+      const controller = new AbortController();
+      navigator.locks.request('dam_audio_playing', { signal: controller.signal }, () => {
+        // Return a promise that never resolves — holds the lock until aborted
+        return new Promise(() => {});
+      }).catch(() => {});  // AbortError when we release — expected
+      _wakeLockRelease = () => controller.abort();
+      console.log('[Audio] Web Lock acquired (background throttle protection)');
+    }
+    // Screen Wake Lock — stops the OS from sleeping while audio plays.
+    // Pure Web Audio doesn't block sleep the way <video> playback does, so
+    // we ask for it explicitly. Browsers auto-release the lock when the tab
+    // becomes hidden; reacquireScreenWakeLock() puts it back on visibility
+    // return.
+    _requestScreenWakeLock();
+  }
+
+  async function _requestScreenWakeLock() {
+    if (_screenWakeLock) return;
+    if (typeof navigator === 'undefined' || !navigator.wakeLock) return;
+    if (document.visibilityState !== 'visible') return;  // API rejects otherwise
+    try {
+      const sentinel = await navigator.wakeLock.request('screen');
+      _screenWakeLock = sentinel;
+      console.log('[Audio] Screen Wake Lock acquired (prevents system sleep)');
+      sentinel.addEventListener('release', () => {
+        if (_screenWakeLock === sentinel) _screenWakeLock = null;
+      });
+    } catch (e) {
+      console.warn('[Audio] Screen Wake Lock failed:', e && e.message);
+    }
+  }
+
+  /** Called from app.js on visibilitychange → visible. Browsers auto-release
+   *  the screen wake lock when the tab is hidden, so we put it back when
+   *  the user returns. */
+  function reacquireScreenWakeLock() {
+    if (!playing) return;
+    _requestScreenWakeLock();
   }
 
   function _releaseWakeLock() {
@@ -277,6 +309,12 @@ const audioEngine = (() => {
       _wakeLockRelease();
       _wakeLockRelease = null;
       console.log('[Audio] Web Lock released');
+    }
+    if (_screenWakeLock) {
+      const sentinel = _screenWakeLock;
+      _screenWakeLock = null;
+      sentinel.release().catch(() => {});
+      console.log('[Audio] Screen Wake Lock released');
     }
   }
 
@@ -474,8 +512,8 @@ const audioEngine = (() => {
 
   return {
     init, selectTrack, stop, setVolume, onMarketData, onMarketInfo,
-    handleEvent, registerTrack, resumeIfSuspended, resetDamping,
-    getTrackRegistry, getCurrentTrack, getCurrentTrackName,
+    handleEvent, registerTrack, resumeIfSuspended, reacquireScreenWakeLock,
+    resetDamping, getTrackRegistry, getCurrentTrack, getCurrentTrackName,
     getLatestData, getTargetData, getLatestMarket, isPlaying,
   };
 })();
