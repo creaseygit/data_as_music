@@ -496,7 +496,7 @@ const diggingInTheMarkets = (() => {
         const gain = (0.015 + (msg.magnitude || 0.5) * 0.02).toFixed(3);
         return `$: s("<oh:3 ~ ~ ~>").gain(${gain}).lpf(4000).room(0.4).orbit(5);`;
       }
-      if (type === "price_move") {
+      if (type === "price_step") {
         const dir = msg.direction || 1;
         const mag = msg.magnitude || 0.5;
         const gain = (0.02 + mag * 0.03).toFixed(3);

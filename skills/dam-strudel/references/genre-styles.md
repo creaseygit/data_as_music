@@ -117,7 +117,7 @@ note("<c2 eb2 f2 g2>").s("sawtooth")
 - `trade_rate` → hi-hat Euclidean density (`s("hh(${pulses},16)")` where pulses scales with trade_rate)
 - `volatility` → filter modulation depth and speed
 - `momentum` → whether synth line ascends or descends
-- `price_move` → filter sweep triggers (sudden opens)
+- `price_step` → filter sweep triggers (sudden opens)
 
 ### Dub Techno
 
@@ -173,7 +173,7 @@ note("d1 ~ ~ d1 ~ d1 ~ ~").s("sine").lpf(80).decay(.6)
 
 **Data Mapping:**
 - `velocity` → break slice rearrangement complexity
-- `price_move` → break chop triggers (sudden rearrangement on movement)
+- `price_step` → break chop triggers (sudden rearrangement on movement)
 - `heat` → sub bass presence and gain
 - `trade_rate` → how chopped-up the break is (simple loop vs complex rearrangement)
 
@@ -230,7 +230,7 @@ s("~ sd ~ sd").sometimes(x => x.ply(3))
 
 **Data Mapping:**
 - `velocity` → hi-hat roll speed (8ths vs 16ths vs 32nds)
-- `price_move` → 808 slide triggers
+- `price_step` → 808 slide triggers
 - `heat` → percussion layer count
 - `volatility` → hi-hat probability/dropout (`degradeBy` scaled by volatility)
 - `trade_rate` → snare roll frequency
@@ -321,7 +321,7 @@ stack(
 - `volatility` → bit crush depth, degradation amount
 - `trade_rate` → Euclidean pulse counts (more trades = denser rhythms)
 - `velocity` → pattern transformation frequency (`.every(n, ...)` where n decreases with velocity)
-- `price_move` → trigger pattern reversal or rotation
+- `price_step` → trigger pattern reversal or rotation
 - `spread` → polyrhythmic complexity (wider spread = more divergent meters)
 
 ---
@@ -363,7 +363,7 @@ s("rd [rd@2 rd] rd [rd@2 rd]").gain(0.25)
 - `momentum` → melody activation (sustain melody during trends, even after edge-detected price_move decays)
 - `volatility` → piano detuning (`.speed(rand.range(...))`), delay feedback, bass LPF (muddier when uncertain)
 - `heat` → overall energy/volume scaling
-- `price_move` → melodic phrase trigger (ascending on positive, descending on negative)
+- `price_step` → melodic phrase trigger (ascending on positive, descending on negative)
 
 ### Jazz Ballad
 
@@ -457,4 +457,4 @@ note("<c4 eb4 g4>").s("sine")
 
 4. **Use `heat` as master volume, not master complexity.** A quiet market should sound like a quiet version of the genre, not a different genre. The genre's character should be recognizable at any energy level.
 
-5. **Reserve `price_move` for moments.** It's a phrase trigger, not a sustained value. Use it for fills, runs, stabs — things that punctuate, not things that sustain.
+5. **Reserve `price_step` for moments.** It's the per-tick event, a phrase trigger — not a sustained value. Use it for fills, runs, stabs — things that punctuate. (The continuous `price_move` signal is a different thing: a leaky-integrator vector that *does* sustain; use it for continuous direction-driven parameters, not for stabs.)

@@ -270,8 +270,8 @@ function sweep(signal, from, to, durationMs) {
 Buttons to fire synthetic events:
 
 - **[Fire Spike]** — sends `{event: "spike", magnitude: <slider>}` to `audioEngine.handleEvent()`
-- **[Fire Price Move +]** — sends `{event: "price_move", direction: 1, magnitude: <slider>}`
-- **[Fire Price Move -]** — sends `{event: "price_move", direction: -1, magnitude: <slider>}`
+- **[Fire Price Step +]** — sends `{event: "price_step", direction: 1, magnitude: <slider>}`
+- **[Fire Price Step -]** — sends `{event: "price_step", direction: -1, magnitude: <slider>}`
 - **[Fire Resolved Yes]** — sends `{event: "resolved", result: 1}`
 - **[Fire Resolved No]** — sends `{event: "resolved", result: -1}`
 

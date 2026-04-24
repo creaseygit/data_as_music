@@ -21,17 +21,24 @@ DEFAULT_SENSITIVITY    = 0.5       # 0.0 (least reactive) → 1.0 (most reactive
 EVENT_HEAT_THRESHOLD   = 0.15      # heat delta to fire :event_spike
 EVENT_PRICE_THRESHOLD  = 0.03      # price delta (¢) to fire :event_price_move
 
-# ── Rolling price movement ─────────────────────────────────
-# price_move uses a sensitivity-scaled window (same curve as momentum/
-# volatility: 45s at max sens → 8min at min sens). Max magnitude scales
-# with √window (random-walk growth) so "saturated" means "a big move
-# for this timescale" at any sensitivity:
-#   45s  window →  ~3.7¢   (scalper move)
-#   2.5min       →  ~7¢    (day-trader move)
-#   8min         →  ~12¢   (sustained swing trend)
-# The curve is anchored at PRICE_MOVE_MAX_30S (a 3¢ move in 30s = 1.0).
-PRICE_MOVE_MAX_30S     = 0.03      # anchor: a 3¢ move in 30s saturates magnitude
+# ── Price movement (leaky integrator) ─────────────────────
+# price_move is a signed leaky integrator of per-tick mid deltas. Direction
+# + magnitude + natural decay to zero when price is flat — see
+# docs/development/signal-primitives.md for the full rationale.
+#
+# Sensitivity maps to the integrator's half-life: at sens=1.0 it decays
+# over PRICE_MOVE_HL_MIN seconds (reacts to every flicker); at sens=0.0 it
+# decays over PRICE_MOVE_HL_MAX seconds (news-horizon — only sustained or
+# massive moves register).
+PRICE_MOVE_HL_MIN      = 15.0      # seconds, scalper preset (sens=1.0)
+PRICE_MOVE_HL_MAX      = 3600.0    # seconds, event/news preset (sens=0.0)
+PRICE_MOVE_GAIN        = 20.0      # maps Δmid into pm_v units; tune by ear
 VELOCITY_MAX_MOVE      = 0.10      # 10¢ move in velocity window = 1.0 (absolute, not percentage)
+
+# Legacy: kept for back-compat with the old windowed-price_move code path,
+# which is being replaced by the leaky integrator. Safe to remove once
+# signal-primitives Phase 5 lands.
+PRICE_MOVE_MAX_30S     = 0.03      # anchor: a 3¢ move in 30s saturates magnitude
 
 # ── WebSocket (server → browser) ────────────────────────
 WS_PING_INTERVAL = 30           # seconds, keep-alive for CloudFlare's 100s idle timeout

@@ -27,7 +27,7 @@ The server maintains shared market WebSocket subscriptions via reference countin
 |------|---------|------|
 | `status` | `{tracks: [...], categories: [...]}` | On connect |
 | `market_data` | `{heat, price, price_delta, velocity, trade_rate, spread, tone, sensitivity}` | Every 3s |
-| `event` | `{event: "spike"\|"price_move"\|"resolved", direction?, result?}` | On threshold |
+| `event` | `{event: "spike"\|"price_step"\|"whale"\|"resolved", direction?, result?}` | On threshold. `price_step` is the per-tick raw price jump; distinct from the continuous `price_move` signal in `market_data`. |
 | `market_info` | `{question, slug, event_slug, outcomes, link}` | On market change |
 | `error` | `{message: "..."}` | On error |
 

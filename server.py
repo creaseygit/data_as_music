@@ -12,7 +12,6 @@ import asyncio
 import hashlib
 import json
 import re
-import statistics
 import sys
 import time
 from datetime import datetime, timedelta, timezone
@@ -34,7 +33,8 @@ from config import (
     RESCORE_INTERVAL, BROWSE_CATEGORIES,
     DEFAULT_SENSITIVITY, EVENT_HEAT_THRESHOLD, EVENT_PRICE_THRESHOLD,
     WS_PING_INTERVAL, MAX_CLIENTS, DATA_PUSH_INTERVAL,
-    PRICE_MOVE_MAX_30S, VELOCITY_MAX_MOVE, WARMUP_DURATION,
+    VELOCITY_MAX_MOVE, WARMUP_DURATION,
+    PRICE_MOVE_HL_MIN, PRICE_MOVE_HL_MAX, PRICE_MOVE_GAIN,
 )
 
 
@@ -113,6 +113,19 @@ def _apply_sensitivity(value: float, exponent: float) -> float:
     if value <= 0.0:
         return 0.0
     return max(0.0, min(1.0, value ** exponent))
+
+
+def _leaky_integrator_k(sensitivity: float) -> float:
+    """Per-tick decay rate for the price_move leaky integrator.
+
+    Sensitivity maps to half-life log-uniformly: at s=1.0 the half-life is
+    PRICE_MOVE_HL_MIN (scalper — reacts to every flicker); at s=0.0 it is
+    PRICE_MOVE_HL_MAX (news-horizon — only sustained or massive moves
+    register). Returned value is the fraction decayed per DATA_PUSH_INTERVAL
+    tick, so `pm_v *= (1 - k)` each tick before the new delta is added.
+    """
+    half_life = PRICE_MOVE_HL_MIN * (PRICE_MOVE_HL_MAX / PRICE_MOVE_HL_MIN) ** (1.0 - sensitivity)
+    return 1.0 - 2.0 ** (-DATA_PUSH_INTERVAL / half_life)
 
 
 def _sensitivity_window(sensitivity: float) -> int:
@@ -271,6 +284,8 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
         session._prev_heat = scorer.heat(aid)
         session._prev_price = last_price
         session._prev_price_move = 0.0
+        session.pm_v = 0.0
+        session._prev_smoothed_mid = smoothed_mid  # may be None if no feed data yet
         session._current_tone = 1 if last_price > 0.5 else 0
         session._ema_fast = last_price
         session._ema_slow = last_price
@@ -333,8 +348,12 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
             events.append({"event": "spike", "magnitude": round(spike_mag, 4)})
         if abs_price_delta > EVENT_PRICE_THRESHOLD * sens_exp:
             direction = 1 if raw_price_delta > 0 else -1
-            move_mag = min(1.0, abs_price_delta / (EVENT_PRICE_THRESHOLD * 3))
-            events.append({"event": "price_move", "direction": direction, "magnitude": round(move_mag, 4)})
+            step_mag = min(1.0, abs_price_delta / (EVENT_PRICE_THRESHOLD * 3))
+            # `price_step` — per-tick raw price jump. Distinct from the
+            # continuous `price_move` leaky-integrator signal (which is
+            # windowed/decaying). See docs/development/signal-primitives.md
+            # and docs/development/events.md §4.
+            events.append({"event": "price_step", "direction": direction, "magnitude": round(step_mag, 4)})
         whale_trades = scorer.get_whale_trades(aid, since=session._last_whale_check)
         session._last_whale_check = time.time()
         for wt in whale_trades:
@@ -347,50 +366,23 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
     session._prev_heat = heat
     session._prev_price = last_price
 
-    # ── Price_move: signed, edge-gated, median-of-endpoints ───
-    # Compare the median of the most recent 3 samples against the median
-    # of 3 samples around the window-ago point. Using medians on both
-    # ends (instead of single-sample endpoints) means a stray outlier
-    # at either edge can't own the reading. Max magnitude scales with
-    # √window so "saturated" means "a big move for this timescale."
-    history = list(scorer.price_history.get(aid, []))
-    price_move_raw = 0.0
-    if not is_rotation and len(history) >= 2:
-        prices_only = [p for _, p in history]
-        tail_window = prices_only[-min(3, len(prices_only)):]
-
-        # Effective window: actual buffered length if shorter than target.
-        window_entries = min(len(prices_only), sens_window)
-        actual_window_seconds = window_entries * DATA_PUSH_INTERVAL
-
-        # Indices for the head median: centered on window_entries-back.
-        head_center = len(prices_only) - window_entries
-        head_lo = max(0, head_center - 1)
-        head_hi = min(len(prices_only), head_center + 2)  # inclusive of ±1
-        head_window = prices_only[head_lo:head_hi] or [prices_only[0]]
-
-        tail_med = statistics.median(tail_window)
-        head_med = statistics.median(head_window)
-        raw_move = tail_med - head_med
-
-        pm_max = PRICE_MOVE_MAX_30S * (actual_window_seconds / 30.0) ** 0.5
-        move_sign = 1.0 if raw_move >= 0 else -1.0
-        move_mag = min(1.0, abs(raw_move) / pm_max) if pm_max > 0 else 0.0
-        price_move_raw = move_sign * move_mag
-
-    # Edge detection: only emit price_move when movement is *increasing*
-    # (actively moving). When magnitude is flat or decaying (stale window
-    # sliding past a completed move), emit zero.
-    prev_pm = session._prev_price_move
-    same_dir = (price_move_raw >= 0) == (prev_pm >= 0)
-    if same_dir and abs(price_move_raw) > abs(prev_pm) + 0.01:
-        price_move_n = price_move_raw
-    elif not same_dir and abs(price_move_raw) > 0.15:
-        price_move_n = price_move_raw
+    # ── Price_move: leaky integrator of signed mid deltas ─────
+    # pm_v accumulates g·Δmid with per-tick decay k (derived from sensitivity
+    # → half-life). Direction = sign, magnitude = |pm_v|, natural return to
+    # zero when price is flat. Replaces the old window-diff + edge-detector
+    # stack. See docs/development/signal-primitives.md.
+    if smoothed_mid is not None and session._prev_smoothed_mid is not None:
+        delta_mid = smoothed_mid - session._prev_smoothed_mid
     else:
-        price_move_n = 0.0
+        delta_mid = 0.0
 
-    session._prev_price_move = price_move_raw
+    k = _leaky_integrator_k(session.sensitivity)
+    session.pm_v = (1.0 - k) * session.pm_v + PRICE_MOVE_GAIN * delta_mid
+    session.pm_v = max(-1.0, min(1.0, session.pm_v))
+    if smoothed_mid is not None:
+        session._prev_smoothed_mid = smoothed_mid
+
+    price_move_n = session.pm_v
 
     # ── Warmup blend: tween activity signals from calm to real ──
     w = _warmup_factor(session)

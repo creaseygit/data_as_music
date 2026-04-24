@@ -465,7 +465,7 @@ These both carry signed direction and can tempt you to use either, but they mean
 | Event | msg fields | Musical Use |
 |-------|-----------|-------------|
 | `spike` | `magnitude: 0–1` | Crash, accent, dramatic hit. Scale intensity with magnitude. |
-| `price_move` | `direction: 1\|-1`, `magnitude: 0–1` | Melodic run, arpeggio, fill. Direction = up/down. |
+| `price_step` | `direction: 1\|-1`, `magnitude: 0–1` | Per-tick raw price jump. Melodic run, arpeggio, fill. Direction = up/down. Distinct from the continuous `price_move` signal (which is windowed/decaying). |
 | `resolved` | `result: 1\|-1` | Finale. Market answered the question. 1 = Yes won, -1 = No won. |
 | `whale` | `direction: 1\|-1`, `magnitude: 0–1`, `size: float` | Large trade (≥3x rolling median). Magnitude: 3x=0.33, 6x=0.67, 9x+=1.0. `size` is raw USDC amount. |
 
@@ -497,7 +497,7 @@ Design your signal routing before writing code. **Every layer must have a condit
 | Melody | `\|momentum\| > 0.2` or `heat > 0.5` | **`momentum` (contour direction)**, `tone` (scale), `intBand` (density), `volatility` (fragmentation) | Must use generative techniques (see Design Principles §2) |
 | Pad | `heat > 0.1` | `tone`, `heat` (gain), `volatility` (reverb/detuning), **`momentum` (voicing direction)** | Last layer standing |
 | Texture | `volatility > 0.3` | `volatility` (gain), `spread` (filter) | Calm markets |
-| Events | On trigger | `spike` (magnitude), `price_move` (direction + magnitude), `whale` (large trade) | Always conditional |
+| Events | On trigger | `spike` (magnitude), `price_step` (direction + magnitude), `whale` (large trade) | Always conditional |
 
 **The goal**: at minimum data values, only the faintest pad (or nothing) is audible. At maximum, every layer is active and rich.
 
@@ -801,7 +801,7 @@ See [examples/digging_in_the_markets.js](examples/digging_in_the_markets.js) —
 - **Progressive kick stages** (Design Principles §4): kick pattern changes by heat band — `"bd ~ ~ ~"` (beat 1 only) below h=0.40, `"bd ~ ~ ~ bd ~ ~ ~"` (beats 1 & 3) below h=0.60, then `"bd ~ ~ [~ bd] bd ~ ~ ~"` with a ghost pickup above. Snare ramps from `"~ rim ~ ~"` → rim backbeat → full snare by `intBand`. Hats go 4 → 8 → 16 subdivision with `.degradeBy()` on the top tier.
 - **Living percussion** (Design Principles §5): perlin-humanized hat velocity (`gain(perlin.range(lo, hi))`), `.iter(4)` rotating emphasis on 8th-note hats, `.sometimes()` accents and `.swingBy(0.18, 4)` for the lo-fi groove, 8th-note delay on the piano melody with `.delayfeedback(0.4)`
 - **Layer stripping** (Design Principles §1): texture (>0.05) → pad (>0.10) → bass (>0.20) → rhodes (>0.25) → kick + hats (>0.25) → snare (>0.30) → melody (`|mom| > 0.2` or `h > 0.45`). At `heat=0`, every block emits `$: silence;`.
-- **Event ornamentation**: `spike` → soft open hat, `price_move` → the seed motif `[0,1,2,4]` or its inversion fires as a piano run, `resolved` → a sustained Rhodes chord as a finale
+- **Event ornamentation**: `spike` → soft open hat, `price_step` → the seed motif `[0,1,2,4]` or its inversion fires as a piano run, `resolved` → a sustained Rhodes chord as a finale
 - **Fixed key, directional mood**: always Bb pentatonic — mood comes from melodic direction, not mode. `tone` still swaps chord quality between Bb major (`<Bb^7 Cm7 Dm7 Eb^7>`) and G minor (`<Gm7 Bb^7 Cm7 Dm7>`), but the scale stays put so phrases from adjacent states don't clash.
 
 Study this track for structure and architecture. It implements all five Design Principles and the mastering format, and the motif system is a useful pattern to crib when writing any melody that needs to sustain a long listening session without feeling looped.

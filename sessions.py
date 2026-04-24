@@ -32,7 +32,13 @@ class ClientSession:
         self._prev_price: float = 0.5
         self._prev_asset: str | None = None
         self._current_tone: int = 1           # 1=bullish, 0=bearish
-        self._prev_price_move: float = 0.0
+        self._prev_price_move: float = 0.0    # legacy, unused after signal-primitives Phase 1
+
+        # price_move leaky integrator state. pm_v is the signed output in
+        # [-1, 1]; _prev_smoothed_mid holds the last scorer mid so each tick
+        # can take a signed Δmid. Reset on market rotation.
+        self.pm_v: float = 0.0
+        self._prev_smoothed_mid: float | None = None
 
         # Dual-EMA state for momentum (MACD-inspired). Updated per tick
         # from the scorer's latest smoothed mid.
@@ -58,6 +64,8 @@ class ClientSession:
         self._prev_asset = None
         self._current_tone = 1
         self._prev_price_move = 0.0
+        self.pm_v = 0.0
+        self._prev_smoothed_mid = None
         self._ema_fast = 0.5
         self._ema_slow = 0.5
         self._last_whale_check = 0.0

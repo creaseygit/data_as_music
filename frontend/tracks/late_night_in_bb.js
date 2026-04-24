@@ -723,7 +723,7 @@ $: s("<~ ~ ~ ~ ~ ~ ~ [~ ~ [sd ~] [~ ~ sd]]>").gain(${(0.22 * energy * gainMul).t
         const gain = (0.04 + (msg.magnitude || 0.5) * 0.04).toFixed(3);
         return `$: s("<cr:0 ~ ~ ~>").gain(${gain}).room(0.4).orbit(5);`;
       }
-      if (type === "price_move") {
+      if (type === "price_step") {
         const dir = msg.direction || 1;
         const mag = msg.magnitude || 0.5;
         const gain = (0.03 + mag * 0.04).toFixed(3);

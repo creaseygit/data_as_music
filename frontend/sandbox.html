@@ -130,8 +130,8 @@
         </div>
         <div class="event-grid" style="margin-top:8px;">
           <button onclick="fireEvent('spike')">Fire Spike</button>
-          <button onclick="fireEvent('price_move', 1)">Price Move +</button>
-          <button onclick="fireEvent('price_move', -1)">Price Move -</button>
+          <button onclick="fireEvent('price_step', 1)">Price Step +</button>
+          <button onclick="fireEvent('price_step', -1)">Price Step -</button>
           <button onclick="fireEvent('resolved', 1)">Resolved Yes</button>
           <button onclick="fireEvent('resolved', -1)">Resolved No</button>
         </div>
@@ -404,7 +404,7 @@ function fireEvent(type, direction) {
   if (!audioRunning) { log('Start audio first'); return; }
   const mag = parseFloat(document.getElementById('event-mag').value) / 100;
   const msg = { event: type, magnitude: mag };
-  if (type === 'price_move') msg.direction = direction;
+  if (type === 'price_step') msg.direction = direction;
   if (type === 'resolved') msg.result = direction;
   audioEngine.handleEvent(msg);
   log('Event: ' + type + (direction ? ' (' + (direction > 0 ? '+' : '-') + ')' : '') + ' mag=' + mag.toFixed(2));

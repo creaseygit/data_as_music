@@ -173,7 +173,7 @@ const myTrack = (() => {
 
     // ── Events ──
     // Return a code string for evaluate-mode, or null to ignore.
-    // Common events: "spike", "price_move", "resolved"
+    // Common events: "spike", "price_step", "resolved"
     onEvent(type, msg, data) {
       if (type === "spike") {
         const gain = (0.04 + (msg.magnitude || 0.5) * 0.04).toFixed(3);
