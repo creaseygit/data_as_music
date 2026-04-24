@@ -451,11 +451,23 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
     post_warmup_ticks = max(0, session._ticks_since_rotation - WARMUP_TICKS)
     lookback = min(lookback_target, post_warmup_ticks)
     hist = scorer.price_history.get(aid)
+    past_mid = None
     if hist and lookback >= 1 and len(hist) > lookback and smoothed_mid is not None:
         past_mid = hist[-1 - lookback][1]
         price_delta_cents = (smoothed_mid - past_mid) * 100.0
     else:
         price_delta_cents = 0.0
+
+    print(
+        f"[DATA:{session.client_id}] t={session._ticks_since_rotation} "
+        f"mid={smoothed_mid if smoothed_mid is None else round(smoothed_mid, 5)} "
+        f"hist_len={len(hist) if hist else 0} "
+        f"lookback={lookback}/{lookback_target} "
+        f"past_mid={past_mid if past_mid is None else round(past_mid, 5)} "
+        f"Δ¢={price_delta_cents:+.3f} "
+        f"sens={session.sensitivity:.2f}",
+        flush=True,
+    )
 
     # ── Warmup: tween continuous signals, freeze change-based state ──
     w = _warmup_factor(session)
@@ -505,6 +517,7 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
         "window_seconds": sens_window_seconds,
         "window_fill": round(window_fill, 4),
         "warmup_factor": round(w, 4),
+        "ticks_since_rotation": session._ticks_since_rotation,
     }
     return data, events
 

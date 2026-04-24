@@ -102,7 +102,18 @@ const weatherVane = (() => {
 
       const gainKey = this.getGain('melody').toFixed(2);
       const key = `${dQ}:${tone}:${gainKey}`;
-      if (_cachedCode && _cachedKey === key) return _cachedCode;
+      const cacheHit = _cachedCode && _cachedKey === key;
+
+      const decision = band < 0
+        ? 'silence'
+        : `${band === 0 ? 3 : band === 1 ? 5 : 8}-note ${dQ > 0 ? 'UP' : 'DOWN'}`;
+      console.log(
+        `[WV] Δ¢=${deltaCents.toFixed(3)} `
+        + `qΔ=${dQ.toFixed(2)} band=${band} → ${decision}`
+        + (cacheHit ? ' (cache)' : '')
+      );
+
+      if (cacheHit) return _cachedCode;
 
       let code = "setcpm(20);\n";
 

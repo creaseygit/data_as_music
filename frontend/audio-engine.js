@@ -438,6 +438,13 @@ const audioEngine = (() => {
   }
 
   function onMarketData(data) {
+    console.log(
+      `[Data] t=${data.ticks_since_rotation} `
+      + `price=${data.price?.toFixed(4)} `
+      + `Δ¢=${data.price_delta_cents?.toFixed(3)} `
+      + `warmup=${data.warmup_factor?.toFixed(2)} `
+      + `tone=${data.tone}`
+    );
     // Buffer data — apply at next cycle boundary so we never interrupt mid-bar
     _pendingData = { ...(_pendingData || {}), ...data };
     if (playing && currentTrackDef) {
