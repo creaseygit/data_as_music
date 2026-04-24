@@ -77,7 +77,7 @@ const weatherVane = (() => {
     cpm: 20,  // one cycle ≈ 3s — phrase aligns with data push cadence
 
     voices: {
-      melody: { label: "Melody", default: 1.0 },
+      melody: { label: "Melody", default: 1.0, meter: 'delta' },
     },
 
     gains: {},

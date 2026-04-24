@@ -335,6 +335,35 @@ input[type="range"]::-moz-range-thumb {
   font-variant-numeric: tabular-nums;
 }
 
+/* Horizontal stepped delta gauge — used for melody-style voices that
+   represent a signed magnitude with discrete bands (silence / 3-note /
+   5-note / 8-note up or down). Mirrors Weather Vane's magBand mapping.
+   Cells: 3 down (left), silence (center), 3 up (right). The active cell
+   lights green-up / red-down / dim-grey-zero. When the per-tick gate is
+   closed (price_moving=false) the whole gauge fades. */
+.delta-gauge {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  height: 12px;
+  padding: 1px;
+  background: #0a0a12;
+  border: 1px solid #1a1a2e;
+  border-radius: 2px;
+  transition: opacity 0.2s;
+}
+.delta-gauge.delta-gauge-flat { opacity: 0.35; }
+.delta-cell {
+  background: #1a1a2e;
+  border-radius: 1px;
+  transition: background 0.15s;
+}
+.delta-cell.delta-cell-zero { background: #15151f; }
+.delta-cell.active-up { background: #00ff88; box-shadow: 0 0 4px rgba(0, 255, 136, 0.6); }
+.delta-cell.active-down { background: #ff4466; box-shadow: 0 0 4px rgba(255, 68, 102, 0.6); }
+.delta-cell.active-zero { background: #555; }
+.voice-row-delta .voice-row-state { color: #aaa; }
+
 .url-row { display: flex; gap: 8px; margin-bottom: 12px; }
 .url-row input {
   flex: 1; background: #1a1a2e; color: #e0e0e0; border: 1px solid #333;

@@ -213,6 +213,18 @@ const g = (0.35 * energy * this.getGain('kick')).toFixed(3);
 
 Use consistent voice IDs across tracks: `kick`, `snare`, `hihat`, `perc`, `bass`, `chords`, `melody`, `pad`, `fx`.
 
+### Voice meter types
+
+By default the Now-Playing voice rack renders a 0–100% level meter for each voice (driven by aggregate track energy). Voices that represent a signed, banded melody signal can opt into a different visualisation by setting `meter: 'delta'`:
+
+```javascript
+voices: {
+  melody: { label: "Melody", default: 1.0, meter: 'delta' },
+}
+```
+
+`meter: 'delta'` renders a 7-cell horizontal stepped gauge (3 down / silence / 3 up) keyed to `price_delta_cents` and `price_moving`. Cell thresholds match Weather Vane's bands (0.5¢ / 2¢ / 5¢). The whole gauge dims when `price_moving` is false. Use this for melody/alert voices whose musical decision is "scale length + direction" rather than "loudness".
+
 ## Music Utilities
 
 `audio-engine.js` provides helpers (independent of Strudel):
