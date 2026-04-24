@@ -64,11 +64,7 @@
       </div>
       <div class="audio-sensitivity">
         <label style="color:#555; font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Time window</label>
-        <div style="display:flex; align-items:center; gap:8px;">
-          <input type="range" id="sensitivity-slider" min="0" max="100" value="50" style="width:100px; min-width:60px; flex:1;" oninput="onSensitivityChange(this.value)">
-          <span id="sensitivity-label" style="color:#ff9900; font-size:12px; min-width:32px;">4m</span>
-        </div>
-        <div style="display:flex; gap:4px; margin-top:4px;">
+        <div style="display:flex; gap:4px;">
           <button class="timescale-preset" onclick="setTimescalePreset(15)">15s</button>
           <button class="timescale-preset" onclick="setTimescalePreset(120)">2m</button>
           <button class="timescale-preset" onclick="setTimescalePreset(900)">15m</button>

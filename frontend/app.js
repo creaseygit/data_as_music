@@ -8,6 +8,13 @@ let currentMarketSlug = null;
 let currentEventSlug = null;
 let audioRunning = false;
 
+// Server-facing sensitivity (0-1). Set by time-window preset buttons —
+// there's no slider; the four presets are the only inputs. Default of
+// 0.62 ≈ 120 s timescale aligns with the "2m" preset so one button always
+// appears active. Kept in sync with the active preset via _selectPreset().
+const _SENSITIVITY_DEFAULT = 0.62;
+let currentSensitivity = _SENSITIVITY_DEFAULT;
+
 // ── ET → local time conversion for market names ──
 function convertETtoLocal(text) {
   // Match: "April 2, 4:25AM–4:30AM ET", "April 2, 4AM ET", "April 2, 4:25 AM - 4:30 AM ET"
@@ -87,8 +94,9 @@ function updateHash() {
   }
   const track = document.getElementById('track-select');
   if (track && track.value) parts.push('track=' + encodeURIComponent(track.value));
-  const sensSlider = document.getElementById('sensitivity-slider');
-  if (sensSlider && sensSlider.value !== '50') parts.push('sens=' + sensSlider.value);
+  const sensPct = Math.round(currentSensitivity * 100);
+  const defaultPct = Math.round(_SENSITIVITY_DEFAULT * 100);
+  if (sensPct !== defaultPct) parts.push('sens=' + sensPct);
   // Persist active browse tab so shared links show the right category
   if (activeTab) parts.push('tab=' + encodeURIComponent(activeTab));
   const newHash = parts.length ? '#' + parts.join('&') : '';
@@ -108,12 +116,9 @@ function applyHashOnce() {
   if (params.sens) {
     const pct = parseInt(params.sens);
     if (pct >= 0 && pct <= 100) {
-      const slider = document.getElementById('sensitivity-slider');
-      if (slider) slider.value = pct;
-      const timescale = _timescaleFromPct(pct);
-      document.getElementById('sensitivity-label').textContent = _formatTimescale(timescale);
+      currentSensitivity = pct / 100;
       _updatePresetHighlight(pct);
-      wsClient.send({ action: 'sensitivity', value: pct / 100 });
+      wsClient.send({ action: 'sensitivity', value: currentSensitivity });
     }
   }
 
@@ -226,30 +231,20 @@ function onVolumeChange(rawVal) {
 
 // ── Time window / sensitivity (sent to server) ──
 // The server still talks in "sensitivity 0-1" over the wire, but the UI
-// is labelled in time. These two helpers convert between slider % and
-// timescale seconds using the same log-uniform mapping as
-// sensitivity_timescale() in server.py (HL_MIN=15s, HL_MAX=3600s).
+// only exposes four named timescale presets. These helpers convert
+// between slider % and timescale seconds using the same log-uniform
+// mapping as sensitivity_timescale() in server.py (HL_MIN=15s, HL_MAX=3600s).
 const _TIMESCALE_HL_MIN = 15;
 const _TIMESCALE_HL_MAX = 3600;
 
-function _timescaleFromPct(pct) {
-  const s = pct / 100;
-  return _TIMESCALE_HL_MIN * Math.pow(_TIMESCALE_HL_MAX / _TIMESCALE_HL_MIN, 1 - s);
-}
 function _pctFromTimescale(seconds) {
   const s = 1 - Math.log(seconds / _TIMESCALE_HL_MIN) / Math.log(_TIMESCALE_HL_MAX / _TIMESCALE_HL_MIN);
   return Math.round(Math.max(0, Math.min(100, s * 100)));
 }
-function _formatTimescale(seconds) {
-  if (seconds < 60) return Math.round(seconds) + 's';
-  if (seconds < 3600) return Math.round(seconds / 60) + 'm';
-  const h = seconds / 3600;
-  return (h < 10 ? h.toFixed(1).replace(/\.0$/, '') : Math.round(h)) + 'h';
-}
 
-// Highlight the preset button whose target is closest to the current slider.
-// Tolerance is small (within a few slider %) so only "on a preset" lights up;
-// off-preset custom values leave all buttons unhighlighted.
+// Highlight the preset button whose target is closest to the given pct.
+// Tolerance ±2 pct absorbs rounding from hash round-trips; unmatched
+// values (e.g. a legacy shared URL with a custom pct) leave nothing lit.
 function _updatePresetHighlight(pct) {
   const buttons = document.querySelectorAll('.timescale-preset');
   buttons.forEach(btn => {
@@ -260,26 +255,17 @@ function _updatePresetHighlight(pct) {
   });
 }
 
-let sensTimer = null;
-function onSensitivityChange(rawVal) {
-  const pct = parseInt(rawVal);
-  const timescale = _timescaleFromPct(pct);
-  document.getElementById('sensitivity-label').textContent = _formatTimescale(timescale);
-  _updatePresetHighlight(pct);
-  if (sensTimer) clearTimeout(sensTimer);
-  sensTimer = setTimeout(() => {
-    wsClient.send({ action: 'sensitivity', value: pct / 100 });
-    updateHash();
-  }, 200);
-}
-
 function setTimescalePreset(seconds) {
   const pct = _pctFromTimescale(seconds);
-  const slider = document.getElementById('sensitivity-slider');
-  if (!slider) return;
-  slider.value = pct;
-  onSensitivityChange(pct);
+  currentSensitivity = pct / 100;
+  _updatePresetHighlight(pct);
+  wsClient.send({ action: 'sensitivity', value: currentSensitivity });
+  updateHash();
 }
+
+// Initial highlight so the default preset appears active on page load.
+// app.js is loaded at the bottom of <body> so the DOM is already parsed.
+_updatePresetHighlight(Math.round(currentSensitivity * 100));
 
 // ── Share ──
 function shareUrl() {
@@ -704,10 +690,7 @@ function onWsConnected() {
   if (track && track.value) {
     wsClient.send({ action: 'track', name: track.value });
   }
-  const sensSlider = document.getElementById('sensitivity-slider');
-  if (sensSlider) {
-    wsClient.send({ action: 'sensitivity', value: parseInt(sensSlider.value) / 100 });
-  }
+  wsClient.send({ action: 'sensitivity', value: currentSensitivity });
 }
 
 function onWsDisconnected() {
