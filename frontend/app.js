@@ -110,7 +110,9 @@ function applyHashOnce() {
     if (pct >= 0 && pct <= 100) {
       const slider = document.getElementById('sensitivity-slider');
       if (slider) slider.value = pct;
-      document.getElementById('sensitivity-label').textContent = pct + '%';
+      const timescale = _timescaleFromPct(pct);
+      document.getElementById('sensitivity-label').textContent = _formatTimescale(timescale);
+      _updatePresetHighlight(pct);
       wsClient.send({ action: 'sensitivity', value: pct / 100 });
     }
   }
@@ -222,16 +224,61 @@ function onVolumeChange(rawVal) {
   }, 50);
 }
 
-// ── Sensitivity (sent to server) ──
+// ── Time window / sensitivity (sent to server) ──
+// The server still talks in "sensitivity 0-1" over the wire, but the UI
+// is labelled in time. These two helpers convert between slider % and
+// timescale seconds using the same log-uniform mapping as
+// sensitivity_timescale() in server.py (HL_MIN=15s, HL_MAX=3600s).
+const _TIMESCALE_HL_MIN = 15;
+const _TIMESCALE_HL_MAX = 3600;
+
+function _timescaleFromPct(pct) {
+  const s = pct / 100;
+  return _TIMESCALE_HL_MIN * Math.pow(_TIMESCALE_HL_MAX / _TIMESCALE_HL_MIN, 1 - s);
+}
+function _pctFromTimescale(seconds) {
+  const s = 1 - Math.log(seconds / _TIMESCALE_HL_MIN) / Math.log(_TIMESCALE_HL_MAX / _TIMESCALE_HL_MIN);
+  return Math.round(Math.max(0, Math.min(100, s * 100)));
+}
+function _formatTimescale(seconds) {
+  if (seconds < 60) return Math.round(seconds) + 's';
+  if (seconds < 3600) return Math.round(seconds / 60) + 'm';
+  const h = seconds / 3600;
+  return (h < 10 ? h.toFixed(1).replace(/\.0$/, '') : Math.round(h)) + 'h';
+}
+
+// Highlight the preset button whose target is closest to the current slider.
+// Tolerance is small (within a few slider %) so only "on a preset" lights up;
+// off-preset custom values leave all buttons unhighlighted.
+function _updatePresetHighlight(pct) {
+  const buttons = document.querySelectorAll('.timescale-preset');
+  buttons.forEach(btn => {
+    const onclick = btn.getAttribute('onclick') || '';
+    const m = onclick.match(/setTimescalePreset\((\d+)\)/);
+    const presetPct = m ? _pctFromTimescale(parseInt(m[1])) : -1;
+    btn.classList.toggle('active', presetPct >= 0 && Math.abs(presetPct - pct) <= 2);
+  });
+}
+
 let sensTimer = null;
 function onSensitivityChange(rawVal) {
   const pct = parseInt(rawVal);
-  document.getElementById('sensitivity-label').textContent = pct + '%';
+  const timescale = _timescaleFromPct(pct);
+  document.getElementById('sensitivity-label').textContent = _formatTimescale(timescale);
+  _updatePresetHighlight(pct);
   if (sensTimer) clearTimeout(sensTimer);
   sensTimer = setTimeout(() => {
     wsClient.send({ action: 'sensitivity', value: pct / 100 });
     updateHash();
   }, 200);
+}
+
+function setTimescalePreset(seconds) {
+  const pct = _pctFromTimescale(seconds);
+  const slider = document.getElementById('sensitivity-slider');
+  if (!slider) return;
+  slider.value = pct;
+  onSensitivityChange(pct);
 }
 
 // ── Share ──
