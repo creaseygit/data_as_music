@@ -99,18 +99,22 @@ const diagnostics = (() => {
     }
   }
 
-  // Speak `text` iff the channel is idle and ≥ MIN_UTTERANCE_GAP_MS has
-  // elapsed since the last utterance. Returns true when the utterance was
-  // queued — callers use the return value to decide whether to advance
-  // their "last announced" state.
+  // Speak `text` iff ≥ MIN_UTTERANCE_GAP_MS has elapsed since the last
+  // utterance. Always calls synth.cancel() first — SpeechSynthesis on
+  // Chrome can get into a "stuck speaking" state (utterance >15s killed
+  // without onend, tab backgrounded, stale from a previous session) where
+  // .speaking stays true forever and blocks every subsequent speak().
+  // Cancelling clears that state and any queued backlog. With the 5s gap
+  // floor there's nothing meaningful to preserve in the queue anyway.
+  // Returns true when the utterance was queued.
   function speak(text) {
     try {
       const synth = window.speechSynthesis;
       if (!synth) return false;
       const now = Date.now();
-      if (synth.speaking) return false;
       if (now - _lastSpokeAt < MIN_UTTERANCE_GAP_MS) return false;
       ensureVoice();
+      synth.cancel();
       const u = new SpeechSynthesisUtterance(text);
       if (_selectedVoice) u.voice = _selectedVoice;
       u.rate = 1.0;
