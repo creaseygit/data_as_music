@@ -39,6 +39,11 @@ class ClientSession:
         self.pm_v: float = 0.0
         self._prev_smoothed_mid: float | None = None
 
+        # Per-tick gate for the `price_moving` boolean. Tracks the last
+        # smoothed mid seen in the price_moving check so we can decide
+        # whether the price actually ticked this broadcast cycle.
+        self._prev_gate_mid: float | None = None
+
         # Dual-EMA state for momentum (MACD-inspired). Updated per tick
         # from the scorer's latest smoothed mid.
         self._ema_fast: float = 0.5
@@ -64,6 +69,7 @@ class ClientSession:
         self._prev_price_move = 0.0
         self.pm_v = 0.0
         self._prev_smoothed_mid = None
+        self._prev_gate_mid = None
         self._ema_fast = 0.5
         self._ema_slow = 0.5
         self._ticks_since_rotation = 0

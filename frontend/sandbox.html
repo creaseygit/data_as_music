@@ -118,6 +118,13 @@
             <button id="tone-minor" onclick="setTone(0)">Minor (Bearish)</button>
           </div>
         </div>
+        <div style="margin-top:10px;">
+          <div class="signal-label" style="margin-bottom:6px;">Price Moving (per-tick gate)</div>
+          <div class="tone-toggle">
+            <button id="moving-on" onclick="setMoving(true)">Moving</button>
+            <button id="moving-off" class="active" onclick="setMoving(false)">Flat</button>
+          </div>
+        </div>
       </div>
 
       <!-- Events -->
@@ -149,7 +156,7 @@
         <div class="sweep-grid">
           <button onclick="startSweep('heat', 0, 1, 10000)">Sweep heat 0 &rarr; 1 (10s)</button>
           <button onclick="startSweep('price', 0, 1, 10000)">Sweep price 0 &rarr; 1 (10s)</button>
-          <button onclick="startSweep('price_delta_cents', -8, 8, 16000)">Sweep Δ -8&cent; &rarr; +8&cent; (16s)</button>
+          <button onclick="setMoving(true); startSweep('price_delta_cents', -8, 8, 16000)">Sweep Δ -8&cent; &rarr; +8&cent; (16s)</button>
           <button onclick="sweepAll(15000)">Sweep all 0 &rarr; 1 (15s)</button>
           <button id="sweep-stop-btn" onclick="stopSweep()" style="display:none; border-color:#ff4444; color:#ff4444;">Stop Sweep</button>
         </div>
@@ -190,6 +197,7 @@
 
 let audioRunning = false;
 let currentTone = 1;
+let currentMoving = false;
 const soloState = {};
 const muteState = {};
 let _sweepRaf = null;
@@ -306,6 +314,7 @@ function getSyntheticData() {
     data[s.id] = el ? parseFloat(el.value) / 100 : s.default;
   });
   data.tone = currentTone;
+  data.price_moving = currentMoving;
   return data;
 }
 
@@ -324,6 +333,13 @@ function setTone(val) {
   currentTone = val;
   document.getElementById('tone-major').className = val === 1 ? 'active' : '';
   document.getElementById('tone-minor').className = val === 0 ? 'active' : '';
+  pushData();
+}
+
+function setMoving(val) {
+  currentMoving = val;
+  document.getElementById('moving-on').className = val ? 'active' : '';
+  document.getElementById('moving-off').className = val ? '' : 'active';
   pushData();
 }
 

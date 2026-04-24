@@ -10,7 +10,8 @@ All price-derived signals share a single source of truth: a smoothed mid-price t
 | ------------- | ---------- | ------------------------------------------------------------------- |
 | `heat`        | 0.0 – 1.0  | Composite market activity (velocity·0.35 + trade_rate·0.40 + volume·0.15 + spread·0.10). Uses the scorer's fixed 5-min velocity window internally, so heat reflects per-market activity independent of the client's sensitivity. Power-curve shaped by sensitivity before send. |
 | `price`       | 0.0 – 1.0  | Smoothed WebSocket bid/ask midpoint; falls back to the Gamma REST `outcome_prices` value while book data hasn't arrived yet. |
-| `price_delta_cents` | signed, in cents | **Canonical "did the price move" signal.** Signed delta in cents, computed as `(smoothed_mid_now − smoothed_mid_N_ticks_ago) · 100`. N is sensitivity-scaled (5 ticks ≈ 15s at max sens, ~22 ticks ≈ 66s at default, 100 ticks ≈ 5min at min sens). Lookback is clamped so it never reaches past the warmup boundary, so backfill→live transition artifacts are excluded. Magnitude is the same unit you read off the price ticker. Returns to 0 once the move slides out of the lookback window. |
+| `price_delta_cents` | signed, in cents | **Rolling magnitude of recent movement.** Signed delta in cents, `(smoothed_mid_now − smoothed_mid_N_ticks_ago) · 100`. N is sensitivity-scaled (5 ticks ≈ 15s at max sens, ~22 ticks ≈ 66s at default, 100 ticks ≈ 5min at min sens). Lookback is clamped so it never reaches past the warmup boundary. Good for picking magnitude bands (scale length, voice density, etc.), but **do not use as a silence gate** — it sustains for the lookback duration after a move ends, and inverts sign as the move slides out of the window. |
+| `price_moving` | bool     | **Canonical "is the price ticking right now" gate.** True iff the smoothed mid changed by ≥0.05¢ since the previous broadcast tick. False during warmup and on flat markets. Pair with `price_delta_cents`: gate on `price_moving`, size on `price_delta_cents`. |
 | `price_move`  | -1.0 – 1.0 | Signed leaky integrator on per-tick mid deltas. Same direction as `price_delta_cents` but unitless magnitude with natural decay-to-zero half-life (sensitivity-scaled). Older signal; new tracks should prefer `price_delta_cents` for change-driven musical gestures. |
 | `momentum`    | -1.0 – 1.0 | Signed trend direction (dual-EMA on smoothed mid, MACD-inspired). Fast EMA period = window/3, slow = window. Normalized so ±5¢ EMA divergence → ±1.0. |
 | `velocity`    | 0.0 – 1.0  | Price excursion magnitude over the sensitivity-scaled window, computed as `(max − min) / 0.10`. Unsigned. Reads `(max − min)` rather than endpoint subtraction so a market that swung up 5¢ and came back reads 0.5, not 0. |
@@ -92,7 +93,8 @@ The signals are designed to cover non-overlapping dimensions:
 | Signal       | Window    | Signed? | What it answers                          |
 | ------------ | --------- | ------- | ---------------------------------------- |
 | `price`      | instant (smoothed) | n/a | "Where is the market right now?"         |
-| `price_delta_cents` | 15s–5min | yes | **Canonical change signal.** "How many cents has price moved over the lookback window?" |
+| `price_delta_cents` | 15s–5min | yes | "How many cents has price moved over the lookback window?" (rolling magnitude) |
+| `price_moving` | 1 tick | n/a | "Is the price ticking this cycle?" (gate) |
 | `price_move` | 45s–8min  | yes     | Legacy unitless integrator; same direction as `price_delta_cents`. |
 | `momentum`   | 45s–8min  | yes     | "What's the sustained trend direction?"  |
 | `velocity`   | 45s–8min  | no      | "How far has price ranged in the window?" (max − min) |
@@ -164,6 +166,7 @@ Each `ClientSession` (in `sessions.py`) keeps only the state that depends on tha
 - Event baselines (`_prev_heat`, `_prev_price`, `_prev_asset`, `_current_tone`)
 - Dual-EMA state for momentum (`_ema_fast`, `_ema_slow`)
 - Tick counter since rotation (`_ticks_since_rotation`) — drives the warmup fade and the `price_delta_cents` lookback clamp
+- Previous smoothed mid for the `price_moving` gate (`_prev_gate_mid`)
 
 The price history itself lives on the scorer (shared across all sessions watching the same market). Multiple sessions on the same market get the same underlying samples and compute their own sensitivity-dependent views over that shared series.
 

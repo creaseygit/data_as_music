@@ -458,16 +458,21 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
     else:
         price_delta_cents = 0.0
 
-    print(
-        f"[DATA:{session.client_id}] t={session._ticks_since_rotation} "
-        f"mid={smoothed_mid if smoothed_mid is None else round(smoothed_mid, 5)} "
-        f"hist_len={len(hist) if hist else 0} "
-        f"lookback={lookback}/{lookback_target} "
-        f"past_mid={past_mid if past_mid is None else round(past_mid, 5)} "
-        f"Δ¢={price_delta_cents:+.3f} "
-        f"sens={session.sensitivity:.2f}",
-        flush=True,
-    )
+    # ── price_moving: per-tick gate ──────────────────────────
+    # Boolean. True iff the smoothed mid changed by ≥0.05¢ since the
+    # previous broadcast tick. Lets tracks gate "play only when price
+    # is actively moving" without losing access to the rolling-window
+    # magnitude in price_delta_cents (which sustains for the lookback
+    # duration after a move ends — useful for scale-length, wrong as
+    # a silence gate).
+    PRICE_MOVING_THRESHOLD = 0.0005  # 0.05¢ in price units
+    if smoothed_mid is not None and session._prev_gate_mid is not None:
+        per_tick_delta = smoothed_mid - session._prev_gate_mid
+        price_moving = abs(per_tick_delta) >= PRICE_MOVING_THRESHOLD
+    else:
+        price_moving = False
+    if smoothed_mid is not None:
+        session._prev_gate_mid = smoothed_mid
 
     # ── Warmup: tween continuous signals, freeze change-based state ──
     w = _warmup_factor(session)
@@ -484,6 +489,7 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
         # statistical artifact of that flush, not a real price move.
         price_move_n = 0.0
         price_delta_cents = 0.0
+        price_moving = False
         events = []
         # Freeze integrator state so post-warmup baselines are clean —
         # pm_v and EMAs would otherwise accumulate the flush as noise
@@ -496,6 +502,17 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
         session._prev_heat = heat
         session._prev_price = last_price
 
+    print(
+        f"[DATA:{session.client_id}] t={session._ticks_since_rotation} "
+        f"mid={smoothed_mid if smoothed_mid is None else round(smoothed_mid, 5)} "
+        f"hist_len={len(hist) if hist else 0} "
+        f"lookback={lookback}/{lookback_target} "
+        f"past_mid={past_mid if past_mid is None else round(past_mid, 5)} "
+        f"Δ¢={price_delta_cents:+.3f} moving={price_moving} "
+        f"sens={session.sensitivity:.2f} w={w:.2f}",
+        flush=True,
+    )
+
     # Window metadata for client visualisation: target window for the
     # sensitivity-scaled signals, and how much of that window is actually
     # backed by buffered history (fills from 0→1 over up to 8 min after
@@ -507,6 +524,7 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
         "price": round(price_n, 4),
         "price_move": round(price_move_n, 4),
         "price_delta_cents": round(price_delta_cents, 3),
+        "price_moving": price_moving,
         "momentum": round(momentum_n, 4),
         "velocity": round(velocity_n, 4),
         "trade_rate": round(trade_rate_n, 4),

@@ -93,23 +93,29 @@ const weatherVane = (() => {
 
     evaluateCode(data) {
       const deltaCents = data.price_delta_cents || 0;
+      const moving = data.price_moving === true;
       const tone = data.tone !== undefined ? data.tone : 1;
 
       // Quantize delta to 0.25¢ steps to keep the cache stable across
       // tiny variations. Sign is preserved so direction survives.
       const dQ = q(deltaCents, 0.25);
-      const band = magBand(Math.abs(dQ));
+      // Two gates:
+      //   moving — per-tick price-actually-changed boolean from the server
+      //   magBand — magnitude band from the rolling cents delta
+      // Both must be open to play. moving=false means silence even if the
+      // rolling lookback still shows a delta from a past move.
+      const band = moving ? magBand(Math.abs(dQ)) : -1;
 
       const gainKey = this.getGain('melody').toFixed(2);
-      const key = `${dQ}:${tone}:${gainKey}`;
+      const key = `${moving ? dQ : 'flat'}:${tone}:${gainKey}`;
       const cacheHit = _cachedCode && _cachedKey === key;
 
       const decision = band < 0
-        ? 'silence'
+        ? (moving ? 'silence (sub-band)' : 'silence (flat)')
         : `${band === 0 ? 3 : band === 1 ? 5 : 8}-note ${dQ > 0 ? 'UP' : 'DOWN'}`;
       console.log(
         `[WV] Δ¢=${deltaCents.toFixed(3)} `
-        + `qΔ=${dQ.toFixed(2)} band=${band} → ${decision}`
+        + `qΔ=${dQ.toFixed(2)} moving=${moving} band=${band} → ${decision}`
         + (cacheHit ? ' (cache)' : '')
       );
 

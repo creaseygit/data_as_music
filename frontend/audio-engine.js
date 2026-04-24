@@ -442,6 +442,7 @@ const audioEngine = (() => {
       `[Data] t=${data.ticks_since_rotation} `
       + `price=${data.price?.toFixed(4)} `
       + `Δ¢=${data.price_delta_cents?.toFixed(3)} `
+      + `moving=${data.price_moving} `
       + `warmup=${data.warmup_factor?.toFixed(2)} `
       + `tone=${data.tone}`
     );
