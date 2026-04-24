@@ -83,7 +83,7 @@ const diagnostics = (() => {
     if (_selectedVoice) return;
     _selectedVoice = pickVoice();
     if (_selectedVoice) {
-      console.log(`[diagnostics] voice: ${_selectedVoice.name} (${_selectedVoice.lang})`);
+      console.log(`[diagnostics] voice: ${_selectedVoice.name} (${_selectedVoice.lang}) local=${_selectedVoice.localService}`);
       return;
     }
     // Chrome populates the voice list asynchronously — retry on event.
@@ -93,7 +93,7 @@ const diagnostics = (() => {
         if (_selectedVoice) return;
         _selectedVoice = pickVoice();
         if (_selectedVoice) {
-          console.log(`[diagnostics] voice: ${_selectedVoice.name} (${_selectedVoice.lang})`);
+          console.log(`[diagnostics] voice: ${_selectedVoice.name} (${_selectedVoice.lang}) local=${_selectedVoice.localService}`);
         }
       }, { once: true });
     }
@@ -120,6 +120,9 @@ const diagnostics = (() => {
       u.rate = 1.0;
       u.pitch = 1.0;
       u.volume = 1.0;
+      u.onstart = () => console.log(`[diagnostics] speak start: "${text}"`);
+      u.onend = () => console.log(`[diagnostics] speak end: "${text}"`);
+      u.onerror = (e) => console.warn(`[diagnostics] speak error: "${text}" — ${e.error || e.type}`);
       synth.speak(u);
       _lastSpokeAt = now;
       return true;
