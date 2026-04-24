@@ -102,9 +102,48 @@ def _scale(val, in_lo, in_hi, out_lo, out_hi):
     return out_lo + n * (out_hi - out_lo)
 
 
+def sensitivity_timescale(s: float) -> float:
+    """Canonical mapping from sensitivity slider (0-1) to timescale in seconds.
+
+    This is the single knob the user turns. Every sensitivity-aware signal
+    derives its smoothing / decay / window from this value. Log-uniform so
+    the slider feels linear across the range:
+
+      s=1.0 → PRICE_MOVE_HL_MIN  (15 s)    scalper    — reacts to every flicker
+      s=0.5 → ≈ geometric mean   (~4 min)  intraday   — the default
+      s=0.0 → PRICE_MOVE_HL_MAX  (1 hr)    news       — only massive moves register
+    """
+    return PRICE_MOVE_HL_MIN * (PRICE_MOVE_HL_MAX / PRICE_MOVE_HL_MIN) ** (1.0 - s)
+
+
+# Half-life at the default sensitivity (0.5). Used as the anchor for event
+# threshold scaling so a tick-delta that counts as "significant" at the
+# default setting stays at its face value and gets scaled proportionally
+# toward/away from that at other settings.
+_DEFAULT_HALF_LIFE = PRICE_MOVE_HL_MIN * (PRICE_MOVE_HL_MAX / PRICE_MOVE_HL_MIN) ** 0.5
+
+
+def _event_threshold_scale(half_life: float) -> float:
+    """Multiplier for event magnitude thresholds given a session's half-life.
+
+    Uses √(half_life / default) so thresholds scale like a random walk: a
+    typical price excursion over timescale t grows as √t. At the 15 s
+    scalper preset this makes even small moves fire events; at the 1 hr
+    news preset, only ~10¢ jumps do. Reduces to ≈1.0 at s=0.5 (default),
+    and almost exactly matches the old sens_exp range at s=1 / s=0, but
+    cleanly extends to 1 hr without arbitrary multipliers.
+    """
+    return (half_life / _DEFAULT_HALF_LIFE) ** 0.5
+
+
 def _sensitivity_exponent(s: float) -> float:
-    """Map sensitivity slider 0-1 to power curve exponent.
-    s=0.0 → 4.0 (crushes small values), s=0.5 → 1.0 (linear), s=1.0 → 0.25 (inflates)."""
+    """Power-curve exponent for intensity signals (heat/trade_rate/spread).
+
+    Shorter timescale (scalper) → inflates values; longer timescale (news)
+    → compresses them. Range 0.25 (s=1) to 4.0 (s=0). Derived from the
+    canonical sensitivity_timescale, though the mapping shape is preserved
+    from the legacy curve to avoid behavior regressions on intensity signals.
+    """
     return 4.0 ** (1.0 - 2.0 * s)
 
 
@@ -118,25 +157,23 @@ def _apply_sensitivity(value: float, exponent: float) -> float:
 def _leaky_integrator_k(sensitivity: float) -> float:
     """Per-tick decay rate for the price_move leaky integrator.
 
-    Sensitivity maps to half-life log-uniformly: at s=1.0 the half-life is
-    PRICE_MOVE_HL_MIN (scalper — reacts to every flicker); at s=0.0 it is
-    PRICE_MOVE_HL_MAX (news-horizon — only sustained or massive moves
-    register). Returned value is the fraction decayed per DATA_PUSH_INTERVAL
-    tick, so `pm_v *= (1 - k)` each tick before the new delta is added.
+    Half-life equals sensitivity_timescale. Returned value is the fraction
+    decayed per DATA_PUSH_INTERVAL tick, so `pm_v *= (1 - k)` each tick
+    before the new delta is added.
     """
-    half_life = PRICE_MOVE_HL_MIN * (PRICE_MOVE_HL_MAX / PRICE_MOVE_HL_MIN) ** (1.0 - sensitivity)
+    half_life = sensitivity_timescale(sensitivity)
     return 1.0 - 2.0 ** (-DATA_PUSH_INTERVAL / half_life)
 
 
 def _sensitivity_window(sensitivity: float) -> int:
-    """Map sensitivity 0–1 to window length in buffer entries (at 3s intervals).
+    """Window length in samples for velocity / volatility / momentum stats.
 
-    sensitivity=1.0 → 15 entries  (45s)  — scalper: catches quick pumps
-    sensitivity=0.5 → ~49 entries (~2.5min) — day trader
-    sensitivity=0.0 → 160 entries (8min) — swing trader: only sustained trends
-
-    Exponential curve mirrors how short MA period differences matter more
-    than long ones (9-EMA vs 20-EMA is a bigger deal than 180 vs 200).
+    Capped by MID_HISTORY_MAXLEN (~10 min of buffer) — long-horizon
+    presets (1 hr) would otherwise want more history than the scorer
+    stores. Legacy exponential curve preserved here (15 → 160 entries
+    across s=1..0) so intensity-adjacent signals don't regress; the
+    canonical sensitivity_timescale governs the vector signal's half-life
+    independently.
     """
     return max(4, int(160 * (15 / 160) ** sensitivity))
 
@@ -270,11 +307,16 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
     )
 
     # ── Sensitivity configuration ─────────────────────────────
+    # sensitivity_timescale is the canonical knob. sens_exp and sens_window
+    # are legacy-shape mappings preserved for intensity and windowed stats;
+    # half_life drives the leaky integrator and event-threshold scaling.
+    half_life = sensitivity_timescale(session.sensitivity)
     sens_exp = _sensitivity_exponent(session.sensitivity)
     sens_window = _sensitivity_window(session.sensitivity)
     if session._market_window_cap is not None:
         sens_window = min(sens_window, session._market_window_cap)
     sens_window_seconds = sens_window * DATA_PUSH_INTERVAL
+    event_scale = _event_threshold_scale(half_life)
 
     # ── Rotation: reset per-session state when the market changes ──
     events = []
@@ -338,21 +380,23 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
     session._ema_slow += alpha_slow * (last_price - session._ema_slow)
     momentum_n = max(-1.0, min(1.0, (session._ema_fast - session._ema_slow) / 0.05))
 
-    # ── Event detection (pre price_move, so we have scorer-level deltas) ──
+    # ── Event detection ───────────────────────────────────────
+    # Thresholds scale as √(half_life / default) — a random-walk-like scaling
+    # where a "typical" move over timescale t grows as √t. At the 15 s
+    # scalper preset small moves fire events; at 1 hr only ≥10¢ jumps do.
     if not is_rotation:
         heat_delta = abs(heat - session._prev_heat)
         raw_price_delta = last_price - session._prev_price
         abs_price_delta = abs(raw_price_delta)
-        if heat_delta > EVENT_HEAT_THRESHOLD * sens_exp:
+        if heat_delta > EVENT_HEAT_THRESHOLD * event_scale:
             spike_mag = min(1.0, heat_delta / (EVENT_HEAT_THRESHOLD * 3))
             events.append({"event": "spike", "magnitude": round(spike_mag, 4)})
-        if abs_price_delta > EVENT_PRICE_THRESHOLD * sens_exp:
+        if abs_price_delta > EVENT_PRICE_THRESHOLD * event_scale:
             direction = 1 if raw_price_delta > 0 else -1
             step_mag = min(1.0, abs_price_delta / (EVENT_PRICE_THRESHOLD * 3))
             # `price_step` — per-tick raw price jump. Distinct from the
             # continuous `price_move` leaky-integrator signal (which is
-            # windowed/decaying). See docs/development/signal-primitives.md
-            # and docs/development/events.md §4.
+            # decaying). See docs/development/signal-primitives.md.
             events.append({"event": "price_step", "direction": direction, "magnitude": round(step_mag, 4)})
     session._prev_heat = heat
     session._prev_price = last_price
