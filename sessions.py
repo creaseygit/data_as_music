@@ -45,9 +45,6 @@ class ClientSession:
         self._ema_fast: float = 0.5
         self._ema_slow: float = 0.5
 
-        # Whale detection: last timestamp checked (per-client)
-        self._last_whale_check: float = 0.0
-
         # Warmup: timestamp when current market was selected
         self._market_start_time: float = 0.0
 
@@ -68,7 +65,6 @@ class ClientSession:
         self._prev_smoothed_mid = None
         self._ema_fast = 0.5
         self._ema_slow = 0.5
-        self._last_whale_check = 0.0
         self._market_start_time = time.monotonic()
         self._market_window_cap = None
 

@@ -354,15 +354,6 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
             # windowed/decaying). See docs/development/signal-primitives.md
             # and docs/development/events.md §4.
             events.append({"event": "price_step", "direction": direction, "magnitude": round(step_mag, 4)})
-        whale_trades = scorer.get_whale_trades(aid, since=session._last_whale_check)
-        session._last_whale_check = time.time()
-        for wt in whale_trades:
-            events.append({
-                "event": "whale",
-                "magnitude": round(wt["magnitude"], 4),
-                "direction": wt["direction"],
-                "size": round(wt["size"], 2),
-            })
     session._prev_heat = heat
     session._prev_price = last_price
 

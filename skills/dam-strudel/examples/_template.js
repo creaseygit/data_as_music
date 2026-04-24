@@ -173,16 +173,11 @@ const myTrack = (() => {
 
     // ── Events ──
     // Return a code string for evaluate-mode, or null to ignore.
-    // Common events: "spike", "price_step", "resolved", "whale"
+    // Common events: "spike", "price_step", "resolved"
     onEvent(type, msg, data) {
       if (type === "spike") {
         const gain = (0.04 + (msg.magnitude || 0.5) * 0.04).toFixed(3);
         return `$: s("<cr:0 ~ ~ ~>").gain(${gain}).room(0.4).orbit(5);`;
-      }
-      if (type === "whale") {
-        // Large trade detected (≥3x median). magnitude: 3x=0.33, 9x+=1.0
-        const gain = (0.06 + (msg.magnitude || 0.5) * 0.06).toFixed(3);
-        return `$: s("<cr:2 ~ ~ ~>").gain(${gain}).room(0.5).rsize(4).orbit(5);`;
       }
       return null;
     },

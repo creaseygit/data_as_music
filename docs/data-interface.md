@@ -76,10 +76,9 @@ For `price_move`, the saturation point (what counts as magnitude 1.0) also scale
 
 | Event         | Fields                              | Condition                         |
 | ------------- | ----------------------------------- | --------------------------------- |
-| `spike`       | `magnitude: 0.0–1.0`               | Heat delta exceeds threshold (scaled by sensitivity) |
-| `price_move`  | `direction: 1\|-1`, `magnitude: 0.0–1.0` | Smoothed-price delta exceeds threshold (scaled by sensitivity) |
+| `spike`       | `magnitude: 0.0–1.0`               | Heat delta exceeds threshold (scales with half-life) |
+| `price_step`  | `direction: 1\|-1`, `magnitude: 0.0–1.0` | Per-tick raw price delta exceeds threshold (scales with half-life). Distinct from the continuous `price_move` signal. |
 | `resolved`    | `result: 1\|-1`                     | Market resolved (1=Yes won, -1=No won) |
-| `whale`       | `direction: 1\|-1`, `magnitude: 0.0–1.0`, `size: float` | Trade size ≥ 3x rolling median. Magnitude: 3x=0.33, 6x=0.67, 9x+=1.0. Size is raw USDC amount. |
 
 Event **thresholds** are sensitivity-scaled (high sensitivity fires on smaller moves). Event **magnitudes** are raw — they tell the track how big the event actually was, so musicians can respond proportionally.
 
@@ -160,7 +159,7 @@ Each `ClientSession` (in `sessions.py`) keeps only the state that depends on tha
 
 - Market selection (`market_slug`, `asset_id`)
 - Sensitivity setting
-- Event baselines (`_prev_heat`, `_prev_price`, `_prev_asset`, `_current_tone`, `_prev_price_move`, `_last_whale_check`)
+- Event baselines (`_prev_heat`, `_prev_price`, `_prev_asset`, `_current_tone`)
 - Dual-EMA state for momentum (`_ema_fast`, `_ema_slow`)
 - Warmup timer (`_market_start_time`)
 

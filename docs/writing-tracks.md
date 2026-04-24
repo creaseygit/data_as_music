@@ -149,9 +149,8 @@ The `onEvent(type, msg, data)` method handles one-shot events. Return type depen
 | Event | `msg` fields | Meaning |
 | --- | --- | --- |
 | `spike` | `magnitude: 0.0–1.0` | Heat spike — magnitude tells you how big (small threshold breach vs huge jump) |
-| `price_move` | `direction: 1\|-1`, `magnitude: 0.0–1.0` | Significant price change — direction + size |
+| `price_step` | `direction: 1\|-1`, `magnitude: 0.0–1.0` | Per-tick raw price jump — direction + size. Distinct from the continuous `price_move` signal. |
 | `resolved` | `result: 1\|-1` | Market resolved (1=Yes won, -1=No won) |
-| `whale` | `direction: 1\|-1`, `magnitude: 0.0–1.0`, `size: float` | Large trade (≥3x rolling median). Magnitude: 3x=0.33, 9x+=1.0 |
 
 Use `msg.magnitude` to scale your response — a tiny spike and a massive spike can sound different:
 

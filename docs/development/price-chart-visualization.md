@@ -100,7 +100,7 @@ Keep the four activity-axis strips (`heat`, `velocity`, `trade_rate`, `spread`) 
 4. **Momentum and volatility rendering.** Separate mini-chart, overlay on the price line, or fold into the band shape? Each has tradeoffs for visual density.
 5. **Y-axis zoom.** Auto-zoom to recent range (small moves feel big), fixed 0–100% (honest scale but small moves vanish), or toggle? Prediction markets often sit at 2% or 98% for long stretches, where a fixed scale is useless.
 6. **Tone (bullish/bearish).** Currently sets the header colour. Should the chart reflect tone too — tinted line, tinted band, background wash?
-7. **Event triggers.** When an event fires (e.g. a whale trade), do we annotate the chart (dot, flash on the line) or keep that in the existing strip-flash system? A chart makes annotations natural.
+7. **Event triggers.** When an event fires (e.g. a `spike` or `price_step`), do we annotate the chart (dot, flash on the line) or keep that in the existing strip-flash system? A chart makes annotations natural.
 8. **Historical depth vs. live focus.** Is the chart a rolling window (always shows "last N seconds"), or does it pan as the market plays so the user sees accumulated history growing? Rolling is simpler; panning is more "I've been listening for a while".
 
 ## Non-Goals

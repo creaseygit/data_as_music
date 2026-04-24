@@ -465,9 +465,8 @@ These both carry signed direction and can tempt you to use either, but they mean
 | Event | msg fields | Musical Use |
 |-------|-----------|-------------|
 | `spike` | `magnitude: 0–1` | Crash, accent, dramatic hit. Scale intensity with magnitude. |
-| `price_step` | `direction: 1\|-1`, `magnitude: 0–1` | Per-tick raw price jump. Melodic run, arpeggio, fill. Direction = up/down. Distinct from the continuous `price_move` signal (which is windowed/decaying). |
+| `price_step` | `direction: 1\|-1`, `magnitude: 0–1` | Per-tick raw price jump. Melodic run, arpeggio, fill. Direction = up/down. Distinct from the continuous `price_move` signal (which is decaying). |
 | `resolved` | `result: 1\|-1` | Finale. Market answered the question. 1 = Yes won, -1 = No won. |
-| `whale` | `direction: 1\|-1`, `magnitude: 0–1`, `size: float` | Large trade (≥3x rolling median). Magnitude: 3x=0.33, 6x=0.67, 9x+=1.0. `size` is raw USDC amount. |
 
 ---
 
@@ -497,7 +496,7 @@ Design your signal routing before writing code. **Every layer must have a condit
 | Melody | `\|momentum\| > 0.2` or `heat > 0.5` | **`momentum` (contour direction)**, `tone` (scale), `intBand` (density), `volatility` (fragmentation) | Must use generative techniques (see Design Principles §2) |
 | Pad | `heat > 0.1` | `tone`, `heat` (gain), `volatility` (reverb/detuning), **`momentum` (voicing direction)** | Last layer standing |
 | Texture | `volatility > 0.3` | `volatility` (gain), `spread` (filter) | Calm markets |
-| Events | On trigger | `spike` (magnitude), `price_step` (direction + magnitude), `whale` (large trade) | Always conditional |
+| Events | On trigger | `spike` (magnitude), `price_step` (direction + magnitude) | Always conditional |
 
 **The goal**: at minimum data values, only the faintest pad (or nothing) is audible. At maximum, every layer is active and rich.
 

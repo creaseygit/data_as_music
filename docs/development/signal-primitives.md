@@ -120,7 +120,7 @@ Weather Vane's in-track gate (`weather_vane.js:124`) becomes optional — the le
 
 ## Interactions with the discrete event layer
 
-The discrete event system (`spike`, `price_move`-event, `whale`, `resolved`) is audited separately in `events.md`. Two of its issues intersect directly with this refactor and are folded into the phases below. The rest are whale-specific or log-panel cleanup and stay in that doc.
+The discrete event system is audited separately in `events.md`. After that audit we shipped a simpler event layer: `spike`, `price_step`, `resolved`. The `whale` event was removed (dead code with live bugs — no track consumed it, and `events.md` §7 lists "remove" as a valid option). The four `Event:` log lines in `app.js` are gone too — the log panel is diag-only. The remaining two issues from that audit intersect this refactor and are folded into the phases below.
 
 **In scope here:**
 
@@ -128,7 +128,7 @@ The discrete event system (`spike`, `price_move`-event, `whale`, `resolved`) is 
 
 - **Event thresholds misuse `sens_exp` (`events.md` §3).** `server.py:331-337` scales `spike` and `price_move` event thresholds by multiplying by `sens_exp`, which is a power-curve exponent (0.25–4.0), not a linear scalar. The direction is right (shorter timescale → more events), but the magnitudes are a coincidence of reusing the wrong variable, and at sens=0.0 the thresholds are so large that `spike` effectively cannot fire. Once Phase 6 unifies sensitivity into a single timescale, `sens_exp` is gone entirely — so event thresholds need to be redefined explicitly in terms of half-life. Proposed: `threshold = base · (DEFAULT_HALF_LIFE / half_life)`. Keeps the intended direction with dimensionally honest math.
 
-**Out of scope here (tracked in `events.md`):** whale delivery bug (§1), whale detector priors (§2), whale deque time bounding (§5), log-panel noise (§6), whether to keep whale events at all (§7). These are whale-specific or UI and don't touch the primitives.
+**Resolved in the "Prune whale + drop Event logs" commit:** whale bugs (§1, §2, §5) became moot — the whole event was removed. Log-panel noise (§6) fixed by dropping all four `Event:` lines from `app.js`. Whale keep-or-remove decision (§7) settled: remove.
 
 **Architectural note.** The leaky integrator blurs the line between "continuous signal" and "event" for vector signals — the integrator's output naturally has event shape (impulse + decay). In principle, tracks that currently stab on the `price_move` event could watch rising edges of the continuous signal instead and get the same effect with one fewer channel. Not proposed here (rising-edge detection in track code is more complex than a single event callback), but worth noting as future simplification if the event layer becomes a maintenance burden.
 

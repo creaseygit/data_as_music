@@ -617,13 +617,11 @@ function onWsMarketInfo(market) {
 }
 
 function onWsEvent(msg) {
+  // Events drive tracks silently — the log panel is for diagnostics only
+  // (connection, market switch, errors, audio start/stop), not market-state.
   if (audioRunning) {
     audioEngine.handleEvent(msg);
   }
-  if (msg.event === 'spike') log('Event: heat spike');
-  if (msg.event === 'price_step') log('Event: price ' + (msg.direction > 0 ? 'up' : 'down'));
-  if (msg.event === 'whale') log('Event: whale trade');
-  if (msg.event === 'resolved') log('Event: market resolved (' + (msg.result > 0 ? 'Yes' : 'No') + ')');
 }
 
 function onWsListeners(count) {
