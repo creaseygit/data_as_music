@@ -435,7 +435,7 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
     # sensitivity-scaled signals, and how much of that window is actually
     # backed by buffered history (fills from 0→1 over up to 8 min after
     # a market switch at low sensitivity).
-    window_fill = min(1.0, len(history) / sens_window) if sens_window > 0 else 1.0
+    window_fill = min(1.0, len(recent) / sens_window) if sens_window > 0 else 1.0
 
     data = {
         "heat": round(heat_n, 4),
