@@ -10,7 +10,8 @@ All price-derived signals share a single source of truth: a smoothed mid-price t
 | ------------- | ---------- | ------------------------------------------------------------------- |
 | `heat`        | 0.0 – 1.0  | Composite market activity (velocity·0.35 + trade_rate·0.40 + volume·0.15 + spread·0.10). Uses the scorer's fixed 5-min velocity window internally, so heat reflects per-market activity independent of the client's sensitivity. Power-curve shaped by sensitivity before send. |
 | `price`       | 0.0 – 1.0  | Smoothed WebSocket bid/ask midpoint; falls back to the Gamma REST `outcome_prices` value while book data hasn't arrived yet. |
-| `price_move`  | -1.0 – 1.0 | Signed, edge-detected move over the sensitivity-scaled window. Computed as `median(last 3 samples) − median(3 samples around window-ago)` so a single outlier at either end can't dominate. Max magnitude scales with √window (random-walk growth): 30s → 3¢, 2.5min → ~7¢, 8min → ~12¢. Emits non-zero only when the move is actively growing or the direction flips; zero when price is truly flat or a completed move is decaying out of the window. |
+| `price_delta_cents` | signed, in cents | **Canonical "did the price move" signal.** Signed delta in cents, computed as `(smoothed_mid_now − smoothed_mid_N_ticks_ago) · 100`. N is sensitivity-scaled (5 ticks ≈ 15s at max sens, ~22 ticks ≈ 66s at default, 100 ticks ≈ 5min at min sens). Lookback is clamped so it never reaches past the warmup boundary, so backfill→live transition artifacts are excluded. Magnitude is the same unit you read off the price ticker. Returns to 0 once the move slides out of the lookback window. |
+| `price_move`  | -1.0 – 1.0 | Signed leaky integrator on per-tick mid deltas. Same direction as `price_delta_cents` but unitless magnitude with natural decay-to-zero half-life (sensitivity-scaled). Older signal; new tracks should prefer `price_delta_cents` for change-driven musical gestures. |
 | `momentum`    | -1.0 – 1.0 | Signed trend direction (dual-EMA on smoothed mid, MACD-inspired). Fast EMA period = window/3, slow = window. Normalized so ±5¢ EMA divergence → ±1.0. |
 | `velocity`    | 0.0 – 1.0  | Price excursion magnitude over the sensitivity-scaled window, computed as `(max − min) / 0.10`. Unsigned. Reads `(max − min)` rather than endpoint subtraction so a market that swung up 5¢ and came back reads 0.5, not 0. |
 | `trade_rate`  | 0.0 – 1.0  | Trades per minute, compared against a 5-min EMA baseline. Log-compressed: ratio=1 (baseline) → 0.25, ratio=3 → 0.5, ratio=7 → 0.75. Power-curve shaped by sensitivity. |
@@ -91,7 +92,8 @@ The signals are designed to cover non-overlapping dimensions:
 | Signal       | Window    | Signed? | What it answers                          |
 | ------------ | --------- | ------- | ---------------------------------------- |
 | `price`      | instant (smoothed) | n/a | "Where is the market right now?"         |
-| `price_move` | 45s–8min  | yes     | "Is price moving NOW?" (sensitivity selects timescale; edge-detected) |
+| `price_delta_cents` | 15s–5min | yes | **Canonical change signal.** "How many cents has price moved over the lookback window?" |
+| `price_move` | 45s–8min  | yes     | Legacy unitless integrator; same direction as `price_delta_cents`. |
 | `momentum`   | 45s–8min  | yes     | "What's the sustained trend direction?"  |
 | `velocity`   | 45s–8min  | no      | "How far has price ranged in the window?" (max − min) |
 | `volatility` | 45s–8min  | no      | "How erratic/uncertain is the market?" (stddev) |
@@ -161,7 +163,7 @@ Each `ClientSession` (in `sessions.py`) keeps only the state that depends on tha
 - Sensitivity setting
 - Event baselines (`_prev_heat`, `_prev_price`, `_prev_asset`, `_current_tone`)
 - Dual-EMA state for momentum (`_ema_fast`, `_ema_slow`)
-- Warmup timer (`_market_start_time`)
+- Tick counter since rotation (`_ticks_since_rotation`) — drives the warmup fade and the `price_delta_cents` lookback clamp
 
 The price history itself lives on the scorer (shared across all sessions watching the same market). Multiple sessions on the same market get the same underlying samples and compute their own sensitivity-dependent views over that shared series.
 

@@ -10,7 +10,6 @@ lives on the scorer (shared across sessions watching the same market).
 The session only keeps per-client derived state — EMAs, hysteresis, event
 baselines — since those depend on the session's sensitivity setting.
 """
-import time
 import uuid
 from aiohttp import web
 
@@ -45,8 +44,10 @@ class ClientSession:
         self._ema_fast: float = 0.5
         self._ema_slow: float = 0.5
 
-        # Warmup: timestamp when current market was selected
-        self._market_start_time: float = 0.0
+        # Tick-based warmup: counts broadcast ticks since the current
+        # market was rotated in. Used by the warmup fade and by
+        # price_delta_cents to skip the median-smoother flush window.
+        self._ticks_since_rotation: int = 0
 
         # Max sensitivity-window entries for the current market, or None
         # for markets with no short-lifetime cap. Set on pin from the
@@ -65,7 +66,7 @@ class ClientSession:
         self._prev_smoothed_mid = None
         self._ema_fast = 0.5
         self._ema_slow = 0.5
-        self._market_start_time = time.monotonic()
+        self._ticks_since_rotation = 0
         self._market_window_cap = None
 
 

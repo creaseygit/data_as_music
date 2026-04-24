@@ -46,12 +46,25 @@ MAX_CLIENTS      = 200          # safety limit on concurrent WebSocket connectio
 DATA_PUSH_INTERVAL = 3.0        # seconds between market data pushes to clients
 
 # ── Warmup (intro fade-in on market switch) ─────────────
-# Short smoothstep fade that suppresses first-tick noise and prevents
-# audio pops on market switch. Decoupled from sensitivity-window fill:
-# the backfill seeds the scorer's price history on pin, so window-based
-# signals reach full magnitude immediately and this fade is purely an
-# audio-domain ease-in, not a data-readiness gate.
-WARMUP_DURATION    = 4.0        # seconds
+# Tick-based, not time-based: the binding constraint is the rolling-median
+# smoother flushing backfilled samples. With MID_SMOOTH_WINDOW=3, three
+# live ticks must pass before smoothed_mid is fully decoupled from backfill,
+# and any earlier "delta" is a statistical artifact of that flush, not a
+# real price move. WARMUP_TICKS=4 gives the smoother one tick of headroom.
+#
+# During warmup the server hard-zeroes change-based signals (price_delta_cents,
+# price_move) and freezes per-session integrator state so post-warmup
+# baselines are clean. Continuous signals (heat, momentum, volatility)
+# are smoothstep-faded over the same window for a non-jarring intro.
+WARMUP_TICKS       = 4
+
+# ── Price delta (cents-based change signal) ─────────────
+# price_delta_cents is the canonical "did the price move" signal — signed,
+# in cents, computed as a rolling N-tick delta on the scorer's smoothed
+# mid. Direction = sign, magnitude = how much the price moved over the
+# lookback window. Sensitivity controls N (log-uniform):
+PRICE_DELTA_TICKS_MIN = 5       # sens=1.0 → 15s lookback
+PRICE_DELTA_TICKS_MAX = 100     # sens=0.0 → 5min lookback
 
 # ── Browse categories ──────────────────────────────────
 # Tag IDs for the Browse tabs in the web UI

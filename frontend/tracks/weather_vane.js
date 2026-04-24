@@ -1,35 +1,23 @@
 // ── Weather Vane ─────────────────────────────────────
 // Melody-only price direction indicator. A single vibraphone voice
-// runs up when price is actively moving up, down when actively moving
-// down, and stays silent when the market is flat.
+// runs up when price has moved up, down when price has moved down,
+// and stays silent when the price hasn't moved.
 //
-// The point of this track is maximum clarity: price up → music up,
-// price down → music down. Every ascending run starts on scale degree
-// 0 (the root) and climbs. Every descending run starts on scale
-// degree 12 and falls. The *length* of the run encodes magnitude —
-// 3 notes for a small move, 5 for medium, 8 for a large. No rotation,
-// no ornamentation, no cycle-to-cycle variation. Each run is packed
-// into the first fraction of a cycle with silence trailing, so notes
-// are tightly grouped in time and the "run" reads as a quick flourish.
+// Driven by `price_delta_cents` — the canonical "did the price move"
+// signal: signed cents over a sensitivity-scaled lookback window.
+// Sign decides direction, magnitude (in cents) decides scale length.
 //
-// Gated on `price_move` (NOT `momentum`). `price_move` is the
-// edge-detected signal that emits zero when the price is truly flat,
-// and its window + saturation both scale with sensitivity — so a
-// 10¢ move at sens=0 and a 3¢ move at sens=0.5 are both "saturated"
-// for their timescale. `momentum` is a lagged MACD-style divergence
-// that hovers above zero whenever the EMAs are out of sync (which is
-// almost always on a jittery book), so using it as the gate makes the
-// alert play constantly.
+//   |Δ| < 0.5¢  → silence (no real movement)
+//   0.5 – 2¢    → 3-note run
+//   2 – 5¢      → 5-note run
+//   > 5¢        → 8-note run (full octave)
+//
+// Magnitude in cents is the same unit you'd read off the price ticker.
+// The server suppresses delta during the warmup ticks (median-smoother
+// flush), so this track is silent on market load until a real move
+// happens — no settling artifacts.
 //
 // Scale follows `tone` (1=major, 0=minor).
-// Direction follows the sign of `price_move`.
-// Magnitude of |price_move| selects run length and scales gain.
-//
-// The track applies a light sensitivity-aware hard gate on top of the
-// server's window-scaled signal. The gate scales gently — 0.05 at
-// sens=1.0 up to 0.25 at sens=0.0 — so the sensitivity slider retains
-// meaning without suppressing most moves the server has already decided
-// are meaningful. The server's edge detection handles noise rejection.
 // category: 'alert', label: 'Weather Vane'
 
 const weatherVane = (() => {
@@ -40,20 +28,17 @@ const weatherVane = (() => {
     return Math.round(v / step) * step;
   }
 
-  // Quantize |price_move| into three magnitude bands. The band controls
-  // how many notes are in the run (3 / 5 / 8) — longer run = bigger move.
-  function magBand(absPm) {
-    if (absPm < 0.25) return 0;  // 3-note run
-    if (absPm < 0.55) return 1;  // 5-note run
-    return 2;                     // 8-note run (full octave)
+  // Map |delta_cents| → scale-length band. Returns -1 for silence.
+  function magBand(absCents) {
+    if (absCents < 0.5) return -1;  // silence
+    if (absCents < 2.0) return 0;   // 3-note run
+    if (absCents < 5.0) return 1;   // 5-note run
+    return 2;                        // 8-note run
   }
 
   // Ascending runs — packed into the start of the cycle followed by
   // silence, so notes land ~0.2s apart and the run reads as a quick
   // scalar flourish (rather than a slow dispersal across 3s).
-  //   band 0: 3 notes in 1/4 cycle (0.75s), then 2.25s rest
-  //   band 1: 5 notes in 1/3 cycle (1.0s), then 2.0s rest
-  //   band 2: 8 notes in 1/2 cycle (1.5s), then 1.5s rest
   // Always start on scale degree 0 so every "up" move departs from
   // the same low anchor pitch.
   const ASC = [
@@ -71,14 +56,14 @@ const weatherVane = (() => {
     "[12 11 9 7 5 4 2 0] ~",
   ];
 
-  function melodyCode(tone, pm, gainMul) {
-    const absPm = Math.abs(pm);
-    const band = magBand(absPm);
-    const pattern = pm > 0 ? ASC[band] : DESC[band];
+  function melodyCode(tone, deltaCents, band, gainMul) {
+    const pattern = deltaCents > 0 ? ASC[band] : DESC[band];
     const scale = tone === 1 ? "C4:major" : "C4:minor";
 
-    // Gain ramps from 0.22 (just above threshold) to 0.58 (max move).
-    const g = (0.22 + absPm * 0.36) * gainMul;
+    // Gain ramps from 0.30 (band 0, ~1¢ move) up to 0.62 (>=10¢).
+    // Saturates at 10¢ so further magnitude doesn't keep climbing.
+    const sat = Math.min(1.0, Math.abs(deltaCents) / 10.0);
+    const g = (0.30 + sat * 0.32) * gainMul;
 
     return `$: note("${pattern}").scale("${scale}")`
       + `.s("gm_vibraphone").n(4)`
@@ -107,33 +92,24 @@ const weatherVane = (() => {
     },
 
     evaluateCode(data) {
-      const pm = data.price_move || 0;
+      const deltaCents = data.price_delta_cents || 0;
       const tone = data.tone !== undefined ? data.tone : 1;
-      const sens = data.sensitivity !== undefined ? data.sensitivity : 0.5;
 
-      // Quantize price_move — keeps cache stable across tiny variations.
-      // Sign is preserved so direction survives quantization.
-      const pmQ = q(pm, 0.05);
-      const absPmQ = Math.abs(pmQ);
-
-      // Sensitivity-aware hard gate. Shallow curve — 0.05 (sens=1) to
-      // 0.25 (sens=0) — so the slider's main job is server-side window
-      // sizing, not gating. The server's edge detection already zeroes
-      // out flat/decaying moves, so even a low gate threshold doesn't
-      // produce constant firing on jittery books.
-      const gateThresh = 0.05 + (1 - sens) * 0.20;
+      // Quantize delta to 0.25¢ steps to keep the cache stable across
+      // tiny variations. Sign is preserved so direction survives.
+      const dQ = q(deltaCents, 0.25);
+      const band = magBand(Math.abs(dQ));
 
       const gainKey = this.getGain('melody').toFixed(2);
-      const sensKey = sens.toFixed(2);
-      const key = `${pmQ}:${tone}:${gainKey}:${sensKey}`;
+      const key = `${dQ}:${tone}:${gainKey}`;
       if (_cachedCode && _cachedKey === key) return _cachedCode;
 
       let code = "setcpm(20);\n";
 
-      if (absPmQ < gateThresh) {
+      if (band < 0) {
         code += "$: silence;\n";
       } else {
-        code += melodyCode(tone, pmQ, this.getGain('melody'));
+        code += melodyCode(tone, dQ, band, this.getGain('melody'));
       }
 
       _cachedCode = code;

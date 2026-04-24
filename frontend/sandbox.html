@@ -149,6 +149,7 @@
         <div class="sweep-grid">
           <button onclick="startSweep('heat', 0, 1, 10000)">Sweep heat 0 &rarr; 1 (10s)</button>
           <button onclick="startSweep('price', 0, 1, 10000)">Sweep price 0 &rarr; 1 (10s)</button>
+          <button onclick="startSweep('price_delta_cents', -8, 8, 16000)">Sweep Δ -8&cent; &rarr; +8&cent; (16s)</button>
           <button onclick="sweepAll(15000)">Sweep all 0 &rarr; 1 (15s)</button>
           <button id="sweep-stop-btn" onclick="stopSweep()" style="display:none; border-color:#ff4444; color:#ff4444;">Stop Sweep</button>
         </div>
@@ -204,24 +205,25 @@ function log(msg) {
 
 // ── Signal definitions ──
 const SIGNALS = [
-  { id: 'heat',       label: 'Heat',       min: 0, max: 1, step: 0.01, default: 0.5 },
-  { id: 'price',      label: 'Price',      min: 0, max: 1, step: 0.01, default: 0.5 },
-  { id: 'price_move', label: 'Price Move',  min: -1, max: 1, step: 0.01, default: 0 },
-  { id: 'momentum',   label: 'Momentum',   min: -1, max: 1, step: 0.01, default: 0 },
-  { id: 'velocity',   label: 'Velocity',   min: 0, max: 1, step: 0.01, default: 0.2 },
-  { id: 'trade_rate', label: 'Trade Rate',  min: 0, max: 1, step: 0.01, default: 0.3 },
-  { id: 'spread',     label: 'Spread',     min: 0, max: 1, step: 0.01, default: 0.15 },
-  { id: 'volatility', label: 'Volatility', min: 0, max: 1, step: 0.01, default: 0.2 },
-  { id: 'sensitivity',label: 'Sensitivity', min: 0, max: 1, step: 0.01, default: 0.5 },
+  { id: 'heat',              label: 'Heat',              min: 0, max: 1, step: 0.01, default: 0.5 },
+  { id: 'price',             label: 'Price',             min: 0, max: 1, step: 0.01, default: 0.5 },
+  { id: 'price_delta_cents', label: 'Price Δ (cents)',   min: -10, max: 10, step: 0.1, default: 0 },
+  { id: 'price_move',        label: 'Price Move',        min: -1, max: 1, step: 0.01, default: 0 },
+  { id: 'momentum',          label: 'Momentum',          min: -1, max: 1, step: 0.01, default: 0 },
+  { id: 'velocity',          label: 'Velocity',          min: 0, max: 1, step: 0.01, default: 0.2 },
+  { id: 'trade_rate',        label: 'Trade Rate',        min: 0, max: 1, step: 0.01, default: 0.3 },
+  { id: 'spread',            label: 'Spread',            min: 0, max: 1, step: 0.01, default: 0.15 },
+  { id: 'volatility',        label: 'Volatility',        min: 0, max: 1, step: 0.01, default: 0.2 },
+  { id: 'sensitivity',       label: 'Sensitivity',       min: 0, max: 1, step: 0.01, default: 0.5 },
 ];
 
 const PRESETS = {
-  'Bull Run':    { heat: 0.8, price: 0.85, price_move: 0.6, momentum: 0.8, velocity: 0.6, trade_rate: 0.7, spread: 0.1, volatility: 0.3, tone: 1 },
-  'Crash':       { heat: 0.9, price: 0.15, price_move: -0.8, momentum: -0.9, velocity: 0.8, trade_rate: 0.9, spread: 0.6, volatility: 0.8, tone: 0 },
-  'Dead Market': { heat: 0.05, price: 0.5, price_move: 0, momentum: 0, velocity: 0.05, trade_rate: 0.05, spread: 0.2, volatility: 0.1, tone: 1 },
-  'Chaos':       { heat: 0.7, price: 0.5, price_move: 0, momentum: 0, velocity: 0.5, trade_rate: 0.6, spread: 0.5, volatility: 0.95, tone: 0 },
-  'Breakout':    { heat: 0.85, price: 0.7, price_move: 0.7, momentum: 0.7, velocity: 0.7, trade_rate: 0.8, spread: 0.15, volatility: 0.6, tone: 1 },
-  'Calm Trend':  { heat: 0.3, price: 0.6, price_move: 0.2, momentum: 0.5, velocity: 0.2, trade_rate: 0.2, spread: 0.1, volatility: 0.1, tone: 1 },
+  'Bull Run':    { heat: 0.8, price: 0.85, price_delta_cents: 4.0, price_move: 0.6, momentum: 0.8, velocity: 0.6, trade_rate: 0.7, spread: 0.1, volatility: 0.3, tone: 1 },
+  'Crash':       { heat: 0.9, price: 0.15, price_delta_cents: -7.0, price_move: -0.8, momentum: -0.9, velocity: 0.8, trade_rate: 0.9, spread: 0.6, volatility: 0.8, tone: 0 },
+  'Dead Market': { heat: 0.05, price: 0.5, price_delta_cents: 0, price_move: 0, momentum: 0, velocity: 0.05, trade_rate: 0.05, spread: 0.2, volatility: 0.1, tone: 1 },
+  'Chaos':       { heat: 0.7, price: 0.5, price_delta_cents: 0, price_move: 0, momentum: 0, velocity: 0.5, trade_rate: 0.6, spread: 0.5, volatility: 0.95, tone: 0 },
+  'Breakout':    { heat: 0.85, price: 0.7, price_delta_cents: 6.0, price_move: 0.7, momentum: 0.7, velocity: 0.7, trade_rate: 0.8, spread: 0.15, volatility: 0.6, tone: 1 },
+  'Calm Trend':  { heat: 0.3, price: 0.6, price_delta_cents: 1.2, price_move: 0.2, momentum: 0.5, velocity: 0.2, trade_rate: 0.2, spread: 0.1, volatility: 0.1, tone: 1 },
 };
 
 // ── Track loading (server provides the list via /api/categories, but sandbox

@@ -107,7 +107,7 @@ Full jazz piano trio with two harmonic worlds: bullish (Bb major, ii-V-I-IV) and
 Dusty, mellow lo-fi beats (~80 BPM). Swung drums, warm sine bass, Rhodes comping, sparse pentatonic melodies, vinyl texture. Bullish = Bb major, bearish = G minor — flat keys for that warm lo-fi register. `heat` controls layer density (sparse → full kit). `trade_rate` + `velocity` drive the intensity band: rim shots → swung 8ths → dropout 16ths. Momentum drives the melodic contour. Volatility adds reverb, detuning, and wobble. Price tints the global filter warmth.
 
 ### Weather Vane (alert track)
-Single-voice vibraphone that indicates price direction. Silent when the market is flat. When price is actively moving up, plays an ascending scale run; moving down, a descending run. The scale follows `tone` — major when bullish, minor when bearish. The magnitude of the move selects one of three density bands: sparse rising/falling pings at low magnitude, 5-note runs at mid, full 8-note runs with occasional octave sparkle at high. Gated on the edge-detected `price_move` signal so the voice truly goes silent between moves rather than lingering. Sensitivity still applies — the server shapes `price_move` with a power curve, so cranking the slider makes smaller moves wake the alert. No drums, no chords — direction-only, by design.
+Single-voice vibraphone that indicates price direction. Silent when the price isn't moving. Driven by `price_delta_cents` — the canonical "did the price move" signal in cents. Sign of the delta picks ascending (up) or descending (down); magnitude in cents picks one of three scale lengths: 3-note run at 0.5–2¢, 5-note run at 2–5¢, full 8-note octave run above 5¢. Below 0.5¢ the voice is silent — no sound on flat markets, no settling artifact on market load. The scale follows `tone` — major when bullish, minor when bearish. Sensitivity still applies — it scales the lookback window (15s at max → 5min at min), so cranking the slider makes Weather Vane react to shorter-horizon moves. No drums, no chords — direction-only, by design.
 
 ## Tools for Tuning
 
@@ -117,10 +117,11 @@ Single-voice vibraphone that indicates price direction. Silent when the market i
 
 ```
 CONTINUOUS (every 3 seconds):
-  heat         0–1      Energy level (master dial)
-  price        0–1      Where the market is
-  price_move  -1–1      Active movement RIGHT NOW (phrase trigger)
-  momentum    -1–1      Sustained trend direction (section mood)
+  heat                0–1      Energy level (master dial)
+  price               0–1      Where the market is
+  price_delta_cents   ±cents   Cents moved over lookback window (canonical change)
+  price_move         -1–1      Legacy unitless integrator (same direction as ^)
+  momentum           -1–1      Sustained trend direction (section mood)
   velocity     0–1      Speed of change (unsigned)
   volatility   0–1      Erratic-ness / uncertainty
   trade_rate   0–1      Trading frequency

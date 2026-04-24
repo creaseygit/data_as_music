@@ -13,7 +13,6 @@ import hashlib
 import json
 import re
 import sys
-import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
@@ -33,8 +32,9 @@ from config import (
     RESCORE_INTERVAL, BROWSE_CATEGORIES,
     DEFAULT_SENSITIVITY, EVENT_HEAT_THRESHOLD, EVENT_PRICE_THRESHOLD,
     WS_PING_INTERVAL, MAX_CLIENTS, DATA_PUSH_INTERVAL,
-    VELOCITY_MAX_MOVE, WARMUP_DURATION,
+    VELOCITY_MAX_MOVE, WARMUP_TICKS,
     PRICE_MOVE_HL_MIN, PRICE_MOVE_HL_MAX, PRICE_MOVE_GAIN,
+    PRICE_DELTA_TICKS_MIN, PRICE_DELTA_TICKS_MAX,
 )
 
 
@@ -206,14 +206,32 @@ def _compute_window_cap(market: dict | None) -> int | None:
 
 
 def _warmup_factor(session: ClientSession) -> float:
-    """Smooth 0→1 tween over WARMUP_DURATION seconds since market switch.
-    Uses smoothstep (3t²-2t³) for a gradual ease-in that reaches 1.0
-    with zero slope — no perceptible jump at the end."""
-    elapsed = time.monotonic() - session._market_start_time
-    if elapsed >= WARMUP_DURATION:
+    """Smooth 0→1 tween over WARMUP_TICKS broadcast ticks since rotation.
+    Uses smoothstep (3t²-2t³) for a gradual ease-in.
+
+    Tick-based (not time-based) because the binding constraint is the
+    rolling-median smoother flushing backfilled samples — that's a
+    discrete tick count, not a wallclock duration. While w<1.0 the
+    server hard-zeroes change-based signals and freezes integrator
+    state so post-warmup baselines are clean.
+    """
+    t = session._ticks_since_rotation
+    if t >= WARMUP_TICKS:
         return 1.0
-    t = elapsed / WARMUP_DURATION
-    return t * t * (3.0 - 2.0 * t)
+    x = t / WARMUP_TICKS
+    return x * x * (3.0 - 2.0 * x)
+
+
+def _price_delta_lookback_ticks(sensitivity: float) -> int:
+    """Lookback window in ticks for the price_delta_cents signal.
+
+    Log-uniform mapping from sensitivity to tick count:
+      s=1.0 → PRICE_DELTA_TICKS_MIN  (5 ticks ≈ 15s, scalper)
+      s=0.5 → geometric mean         (~22 ticks ≈ 66s, default)
+      s=0.0 → PRICE_DELTA_TICKS_MAX  (100 ticks ≈ 5min, news)
+    """
+    ratio = PRICE_DELTA_TICKS_MAX / PRICE_DELTA_TICKS_MIN
+    return max(1, round(PRICE_DELTA_TICKS_MIN * ratio ** (1.0 - sensitivity)))
 
 
 def _get_api_price(market: dict, asset_id: str) -> float | None:
@@ -331,7 +349,11 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
         session._current_tone = 1 if last_price > 0.5 else 0
         session._ema_fast = last_price
         session._ema_slow = last_price
-        session._market_start_time = time.monotonic()
+        session._ticks_since_rotation = 0
+
+    # Increment tick counter (post-rotation reset starts at 0; first
+    # post-rotation tick becomes 1).
+    session._ticks_since_rotation += 1
 
     # ── Tone hysteresis (on smoothed price) ───────────────────
     if session._current_tone == 1 and last_price < 0.45:
@@ -419,17 +441,48 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
 
     price_move_n = session.pm_v
 
-    # ── Warmup blend: tween activity signals from calm to real ──
+    # ── Price delta (cents): canonical change signal ─────────
+    # Signed delta over a sensitivity-scaled tick window on the scorer's
+    # smoothed mid. Sign = direction, magnitude = cents moved. The
+    # lookback never reaches past the rotation boundary (clamped to
+    # `_ticks_since_rotation - WARMUP_TICKS`), so the median flush and
+    # any backfill/live transition artifacts are excluded.
+    lookback_target = _price_delta_lookback_ticks(session.sensitivity)
+    post_warmup_ticks = max(0, session._ticks_since_rotation - WARMUP_TICKS)
+    lookback = min(lookback_target, post_warmup_ticks)
+    hist = scorer.price_history.get(aid)
+    if hist and lookback >= 1 and len(hist) > lookback and smoothed_mid is not None:
+        past_mid = hist[-1 - lookback][1]
+        price_delta_cents = (smoothed_mid - past_mid) * 100.0
+    else:
+        price_delta_cents = 0.0
+
+    # ── Warmup: tween continuous signals, freeze change-based state ──
     w = _warmup_factor(session)
     if w < 1.0:
+        # Fade-in for ambient/continuous signals (heat, momentum, etc.)
         heat_n *= w
         velocity_n *= w
         trade_rate_n *= w
         spread_n *= w
         volatility_n *= w
         momentum_n *= w
-        price_move_n *= w
+        # Hard-zero change-based signals: the median smoother is still
+        # flushing backfilled samples, so any apparent "delta" is a
+        # statistical artifact of that flush, not a real price move.
+        price_move_n = 0.0
+        price_delta_cents = 0.0
         events = []
+        # Freeze integrator state so post-warmup baselines are clean —
+        # pm_v and EMAs would otherwise accumulate the flush as noise
+        # and carry it into the first real broadcast.
+        session.pm_v = 0.0
+        if smoothed_mid is not None:
+            session._prev_smoothed_mid = smoothed_mid
+        session._ema_fast = last_price
+        session._ema_slow = last_price
+        session._prev_heat = heat
+        session._prev_price = last_price
 
     # Window metadata for client visualisation: target window for the
     # sensitivity-scaled signals, and how much of that window is actually
@@ -441,6 +494,7 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
         "heat": round(heat_n, 4),
         "price": round(price_n, 4),
         "price_move": round(price_move_n, 4),
+        "price_delta_cents": round(price_delta_cents, 3),
         "momentum": round(momentum_n, 4),
         "velocity": round(velocity_n, 4),
         "trade_rate": round(trade_rate_n, 4),
