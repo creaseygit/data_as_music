@@ -534,20 +534,21 @@ function _renderVoiceRack() {
   container.innerHTML = voices.map(([id, v]) => {
     if (v.meter === 'delta') {
       // Horizontal stepped gauge: 3 down cells | silence | 3 up cells.
-      // Cells are static; _updateVoiceRack toggles the .active class on
-      // the cell matching the current band.
-      const titles = {
-        '-3': '8-note DOWN (≥5¢)',
-        '-2': '5-note DOWN (2–5¢)',
-        '-1': '3-note DOWN (0.5–2¢)',
-        '0':  'silence (<0.5¢ or flat)',
-        '1':  '3-note UP (0.5–2¢)',
-        '2':  '5-note UP (2–5¢)',
-        '3':  '8-note UP (≥5¢)',
-      };
-      const cells = [-3, -2, -1, 0, 1, 2, 3].map(b =>
-        `<div class="delta-cell${b === 0 ? ' delta-cell-zero' : ''}" `
-        + `data-band="${b}" title="${titles[b]}"></div>`
+      // Each cell is self-labelled with arrow + note-count so the band
+      // structure is readable without knowing the colour code. Active
+      // cell fills brightly; _updateVoiceRack toggles the .active class.
+      const cellSpec = [
+        { band: -3, label: '▼8', cls: 'down', title: '8-note DOWN (≥5¢)' },
+        { band: -2, label: '▼5', cls: 'down', title: '5-note DOWN (2–5¢)' },
+        { band: -1, label: '▼3', cls: 'down', title: '3-note DOWN (0.5–2¢)' },
+        { band:  0, label: '·',  cls: 'zero', title: 'silence (<0.5¢ or flat)' },
+        { band:  1, label: '▲3', cls: 'up',   title: '3-note UP (0.5–2¢)' },
+        { band:  2, label: '▲5', cls: 'up',   title: '5-note UP (2–5¢)' },
+        { band:  3, label: '▲8', cls: 'up',   title: '8-note UP (≥5¢)' },
+      ];
+      const cells = cellSpec.map(c =>
+        `<div class="delta-cell delta-cell-${c.cls}" `
+        + `data-band="${c.band}" title="${c.title}">${c.label}</div>`
       ).join('');
       return `
         <div class="voice-row-np voice-row-delta" id="vrow-${id}">
@@ -603,12 +604,7 @@ function _updateVoiceRack(data) {
         gauge.classList.toggle('delta-gauge-flat', !moving);
         for (const cell of gauge.children) {
           const cellBand = parseInt(cell.dataset.band, 10);
-          cell.classList.remove('active-up', 'active-down', 'active-zero');
-          if (cellBand === band) {
-            if (band > 0) cell.classList.add('active-up');
-            else if (band < 0) cell.classList.add('active-down');
-            else cell.classList.add('active-zero');
-          }
+          cell.classList.toggle('active', cellBand === band);
         }
       }
       if (state) {
