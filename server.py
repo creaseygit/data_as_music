@@ -1073,6 +1073,7 @@ async def handle_contact(request):
 async def handle_browse(request):
     """Browse markets by category."""
     import market.gamma as gamma_module
+    from market.clob_history import fetch_midpoints
     from datetime import datetime, timezone
     tag_id = request.query.get("tag_id")
     sort = request.query.get("sort", "volume")
@@ -1099,18 +1100,28 @@ async def handle_browse(request):
             filtered.append(m)
         markets = filtered
 
+        # Build entries using Gamma's snapshot price as a fallback, and
+        # capture each market's primary CLOB token so we can replace the
+        # price with a live midpoint below.
         result = []
-        for m in markets:
+        primary_tokens = []
+        token_for_idx = {}
+        for idx, m in enumerate(markets):
             prices = m.get("outcome_prices", [])
             outcomes = m.get("outcomes", [])
-            primary_price = None
-            if prices and outcomes and len(prices) == len(outcomes):
+            asset_ids = m.get("asset_ids", [])
+            primary_idx = 0
+            if outcomes:
                 for i, name in enumerate(outcomes):
                     if name.lower() in ("yes", "up"):
-                        primary_price = prices[i]
+                        primary_idx = i
                         break
-            if primary_price is None and prices:
+            primary_price = None
+            if prices and primary_idx < len(prices):
+                primary_price = prices[primary_idx]
+            elif prices:
                 primary_price = prices[0]
+            primary_token = asset_ids[primary_idx] if primary_idx < len(asset_ids) else None
             result.append({
                 "question": m["question"],
                 "slug": m["slug"],
@@ -1119,6 +1130,19 @@ async def handle_browse(request):
                 "price": round(primary_price, 4) if primary_price is not None else None,
                 "end_date": m.get("end_date"),
             })
+            if primary_token:
+                primary_tokens.append(primary_token)
+                token_for_idx[idx] = primary_token
+
+        # Replace stale Gamma prices with live CLOB midpoints. Falls back
+        # to the snapshot price for any token the batch call doesn't return.
+        if primary_tokens:
+            mids = await asyncio.to_thread(fetch_midpoints, primary_tokens)
+            if mids:
+                for idx, tok in token_for_idx.items():
+                    if tok in mids:
+                        result[idx]["price"] = round(mids[tok], 4)
+
         return web.json_response({"ok": True, "markets": result})
     except Exception as e:
         print(f"[BROWSE] Error: {e}", flush=True)

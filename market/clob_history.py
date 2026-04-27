@@ -55,6 +55,30 @@ def fetch_price_history(token_id: str, *, interval: str = "1h",
         return []
 
 
+def fetch_midpoints(token_ids: list[str], *, timeout: float = 5.0
+                    ) -> dict[str, float]:
+    """Fetch live midpoints for multiple CLOB tokens via the batch endpoint.
+
+    Returns {token_id: midpoint} for tokens the endpoint resolved. Tokens
+    that fail or are missing from the response are simply absent from the
+    result; callers should fall back to whatever stale value they have.
+    """
+    if not token_ids:
+        return {}
+    try:
+        resp = requests.post(
+            f"{CLOB_REST}/midpoints",
+            json=[{"token_id": tid} for tid in token_ids],
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return {tid: float(mid) for tid, mid in data.items()}
+    except (requests.RequestException, ValueError, KeyError) as e:
+        print(f"[CLOB_MID] batch fetch failed ({len(token_ids)} tokens): {e}", flush=True)
+        return {}
+
+
 def upsample_to_cadence(points: list[tuple[float, float]],
                         cadence_seconds: float,
                         max_samples: int
