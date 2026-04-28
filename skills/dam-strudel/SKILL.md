@@ -419,9 +419,10 @@ Every 3 seconds, `evaluateCode(data)` receives:
 |--------|-------|-------------|---------------|
 | `heat` | 0–1 | **Energy** | Volume, layer count, rhythmic density, arrangement fullness |
 | `price` | 0–1 | **Harmonic position** | Register, note choice. 0.5 = max tension. 0.9+ = resolution. <0.2 = doom |
-| `price_moving` | bool | **Per-tick "is price ticking NOW?" gate** | Hard on/off for melody/phrase voices. True iff smoothed mid changed ≥0.05¢ this 3s window. False on flat markets and during warmup. **Pair with `price_delta_cents` for direction + magnitude.** |
-| `price_delta_cents` | ±cents | **Magnitude + direction of recent move** | Rolling signed cents over the sensitivity-scaled lookback. Picks scale length / phrase intensity / which sample fires. **Do not use as a silence gate** — sustains for the lookback after a move ends. |
-| `price_move` | -1–1 | **Legacy unitless integrator** | Same direction as `price_delta_cents` but unitless and decaying. Older tracks read this; new tracks should prefer `price_delta_cents` for size and `price_moving` for the gate. |
+| `price_moving` | bool | **Per-tick "is price ticking NOW?" gate** | Hard on/off for melody/phrase voices. True iff smoothed mid changed ≥0.05¢ this 3s window. False on flat markets and during warmup. **Pair with `price_delta_band` for direction + magnitude.** |
+| `price_delta_band` | int -3..+3 | **Server-decided sensitivity-scaled magnitude band** | Sign = direction, |band| = phrase size (1=small, 2=medium, 3=large). 0 = silence (move sits inside the deadzone). **This is the canonical melody-from-price signal.** Single source of truth so the audio decision and the visual delta gauge cell always agree. |
+| `price_delta_cents` | ±cents | **Raw cents over the lookback** | Use for gain-saturation curves (loudness within a band scales with raw move size). **Do not use as a silence gate or band picker** — that's `price_delta_band`'s job. |
+| `price_move` | -1–1 | **Legacy unitless integrator** | Same direction as `price_delta_band` but unitless and decaying. Older tracks read this; new tracks should prefer `price_delta_band` for the band and `price_delta_cents` for raw size. |
 | `momentum` | -1–1 | **Section mood / sustained trend direction** | Build energy on uptrend, pull back on downtrend. Dual-EMA (MACD-style) divergence — lags price, decays slowly after a move, and **hovers above zero whenever the fast/slow EMAs aren't perfectly aligned** (i.e. almost always on a jittery book). Use it for sustained mood (bass walk direction, chord cycling, register), **not** as a silence gate. |
 | `velocity` | 0–1 | **Pace** | Subdivision, tempo feel, rhythmic urgency. 5-min window, absolute: 10¢ move = 1.0 |
 | `volatility` | 0–1 | **Tension/uncertainty** | Dissonance, detuning, filter wobble, tremolo, irregular rhythms |
@@ -431,30 +432,32 @@ Every 3 seconds, `evaluateCode(data)` receives:
 
 ### Pitfall: gating silence — pick the right "is price moving" signal
 
-Three signals all carry "did the price do something" information, and they're easy to confuse. They mean very different things:
+Several signals all carry "did the price do something" information, and they're easy to confuse. They mean very different things:
 
 - **`price_moving` is "did the price tick THIS cycle?"** — a per-tick boolean. True iff smoothed mid changed ≥0.05¢ since the previous 3s broadcast. **This is the canonical melody/phrase gate.** False kills the voice the moment movement stops.
-- **`price_delta_cents` is "how many cents has the price moved over the lookback?"** — signed, in real cents, sensitivity-scaled. Carries magnitude (band picker) and direction (sign). **Sustains for the lookback after a move ends**, so it is not a silence gate on its own — pair it with `price_moving`.
-- **`price_move` is the legacy unitless integrator** — same direction as `price_delta_cents` but no real-world unit and decaying. Older tracks read this; new tracks should prefer the cents pair.
-- **`momentum` is "what's the sustained trend direction?"** — a dual-EMA divergence. The fast and slow EMAs only converge after several time-constants of perfect stability, so on a real order book (with constant bid/ask jitter) `momentum` almost never hits zero — it hovers at small non-zero values indefinitely. Use it for sustained mood (energy ramps, bass walk direction, chord cycling), not as a "silent when flat" gate.
+- **`price_delta_band` is "which gauge cell is lit?"** — server-decided integer in -3..+3, with sign = direction and |band| = phrase size (0 = silence, sits in the deadzone). The thresholds between cells scale with the user's sensitivity slider, so a non-zero band means *the move was big enough at this sensitivity to register*. **Read this for direction + phrase selection.**
+- **`price_delta_cents` is "how many cents has the price moved over the lookback?"** — raw signed cents, also sensitivity-scaled (in window length, not in thresholds). Use for gain-saturation curves so loudness within a band scales with the actual move size. Sustains for the lookback after a move ends, so it is not a silence gate on its own.
+- **`price_move` is the legacy unitless integrator** — same direction as `price_delta_band` but no real-world unit and decaying. Older tracks read this; new tracks should prefer the band+cents pair.
+- **`momentum` is "what's the sustained trend direction?"** — a dual-EMA divergence. On a real order book (with constant bid/ask jitter) `momentum` almost never hits zero — it hovers at small non-zero values indefinitely. Use it for sustained mood (energy ramps, bass walk direction, chord cycling), not as a "silent when flat" gate.
 
 **The canonical "melody from price" recipe** (used by Weather Vane, Late Night in Bb, Digging in the Markets, So Over So Back):
 
 ```js
 const moving = data.price_moving === true;
+const serverBand = data.price_delta_band ?? 0;  // -3..+3, server-decided
 const dCents = data.price_delta_cents || 0;
-const melodyOn = moving && Math.abs(dCents) >= 0.5;
 
-// Magnitude band — matches the Now-Playing delta gauge cells
-function magBand(absCents) {
-  if (absCents < 0.5) return -1;  // silence
-  if (absCents < 2.0) return 0;   // "small" — short phrase
-  if (absCents < 5.0) return 1;   // "medium"
-  return 2;                        // "large" — full phrase
+// Two gates: per-tick movement AND non-zero band.
+// serverBand is 0 inside the sensitivity-scaled deadzone, so it doubles
+// as the magnitude floor — no need to compare cents to a hardcoded 0.5.
+const band = moving ? serverBand : 0;
+const melodyOn = band !== 0;
+
+if (melodyOn) {
+  const mag = Math.abs(band);   // 1=small, 2=medium, 3=large
+  const dir = band > 0 ? 1 : -1; // up or down
+  // Pick phrase set by (dir, mag); use raw dCents for gain saturation.
 }
-
-// Direction
-const dir = dCents > 0 ? 1 : -1;
 ```
 
 Then declare the voice with `meter: 'delta'` so the Now-Playing gauge matches what your track actually does:
@@ -465,7 +468,7 @@ voices: {
 }
 ```
 
-**If you gate silence on `|momentum| < threshold`, the track will play almost constantly.** This was the original Weather Vane bug. Sensitivity still applies to `price_delta_cents` server-side (it scales the lookback window), so using the cents pair does not cost you sensitivity-slider integration.
+**If you gate silence on `|momentum| < threshold`, the track will play almost constantly.** This was the original Weather Vane bug. The sensitivity slider stretches the band thresholds and the lookback window together server-side, so using the band+cents pair gives you full sensitivity-slider integration without each track needing to know about it.
 
 ### The Four Market Moods
 

@@ -26,7 +26,7 @@ The server maintains shared market WebSocket subscriptions via reference countin
 | type | payload | when |
 |------|---------|------|
 | `status` | `{tracks: [...], categories: [...]}` | On connect |
-| `market_data` | `{heat, price, price_delta, velocity, trade_rate, spread, tone, sensitivity}` | Every 3s |
+| `market_data` | `{heat, price, price_moving, price_delta_band, price_delta_cents, price_move, momentum, velocity, volatility, trade_rate, spread, tone, sensitivity, window_seconds, window_fill, warmup_factor, ticks_since_rotation}` | Every 3s. See `docs/data-interface.md` for field semantics. |
 | `event` | `{event: "spike"\|"price_step"\|"resolved", direction?, result?}` | On threshold. `price_step` is the per-tick raw price jump; distinct from the continuous `price_move` signal in `market_data`. |
 | `market_info` | `{question, slug, event_slug, outcomes, link}` | On market change |
 | `error` | `{message: "..."}` | On error |

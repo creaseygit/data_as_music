@@ -35,6 +35,7 @@ from config import (
     VELOCITY_MAX_MOVE, WARMUP_TICKS,
     PRICE_MOVE_HL_MIN, PRICE_MOVE_HL_MAX, PRICE_MOVE_GAIN,
     PRICE_DELTA_TICKS_MIN, PRICE_DELTA_TICKS_MAX,
+    PRICE_DELTA_BAND_LOW, PRICE_DELTA_BAND_MED, PRICE_DELTA_BAND_HIGH,
 )
 
 
@@ -227,11 +228,55 @@ def _price_delta_lookback_ticks(sensitivity: float) -> int:
 
     Log-uniform mapping from sensitivity to tick count:
       s=1.0 → PRICE_DELTA_TICKS_MIN  (5 ticks ≈ 15s, scalper)
-      s=0.5 → geometric mean         (~22 ticks ≈ 66s, default)
-      s=0.0 → PRICE_DELTA_TICKS_MAX  (100 ticks ≈ 5min, news)
+      s=0.5 → geometric mean         (~77 ticks ≈ 4min, default)
+      s=0.0 → PRICE_DELTA_TICKS_MAX  (1200 ticks ≈ 1hr, news)
     """
     ratio = PRICE_DELTA_TICKS_MAX / PRICE_DELTA_TICKS_MIN
     return max(1, round(PRICE_DELTA_TICKS_MIN * ratio ** (1.0 - sensitivity)))
+
+
+def _band_thresholds(sensitivity: float) -> tuple[float, float, float]:
+    """Cents thresholds (LOW, MED, HIGH) for the price_delta_band signal.
+
+    The deadzone is everything below LOW; LOW–MED–HIGH separate the three
+    rising bands either side of zero. Thresholds scale together by a single
+    sensitivity factor (same shape as `_sensitivity_exponent`):
+
+      s=1.0 (most reactive) → 0.25× → 0.125 / 0.5  / 1.25 ¢
+      s=0.5 (default)       → 1.00× → 0.5   / 2.0  / 5.0  ¢
+      s=0.0 (least reactive)→ 4.00× → 2.0   / 8.0  / 20.0 ¢
+
+    Both deadzone width and ramp spacing scale together so the band shape
+    stays self-similar — the slider just tells the music what counts as
+    "small" vs "huge". Dynamic range (small/med/large within a band) is
+    preserved at every sensitivity setting.
+    """
+    factor = 4.0 ** (1.0 - 2.0 * sensitivity)
+    return (
+        PRICE_DELTA_BAND_LOW  * factor,
+        PRICE_DELTA_BAND_MED  * factor,
+        PRICE_DELTA_BAND_HIGH * factor,
+    )
+
+
+def _price_delta_band(cents: float, sensitivity: float) -> int:
+    """Map signed price_delta_cents → integer band in [-3, +3].
+
+    0 = silence (within the sensitivity-scaled deadzone). Sign mirrors the
+    direction of the cents move; magnitude (1/2/3) picks LOW/MED/HIGH.
+    Single source of truth so the audio decision and the visual gauge
+    always agree.
+    """
+    abs_c = abs(cents)
+    t1, t2, t3 = _band_thresholds(sensitivity)
+    if abs_c < t1:
+        return 0
+    sign = 1 if cents > 0 else -1
+    if abs_c < t2:
+        return sign * 1
+    if abs_c < t3:
+        return sign * 2
+    return sign * 3
 
 
 def _get_api_price(market: dict, asset_id: str) -> float | None:
@@ -458,6 +503,12 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
     else:
         price_delta_cents = 0.0
 
+    # ── price_delta_band: sensitivity-scaled band index ──────
+    # Single source of truth for "which gauge cell / which phrase length".
+    # Tracks read this directly instead of recomputing magBand from cents,
+    # so the visual gauge and the audio always agree on which band lit.
+    price_delta_band = _price_delta_band(price_delta_cents, session.sensitivity)
+
     # ── price_moving: per-tick gate ──────────────────────────
     # Boolean. True iff the smoothed mid changed by ≥0.05¢ since the
     # previous broadcast tick. Lets tracks gate "play only when price
@@ -489,6 +540,7 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
         # statistical artifact of that flush, not a real price move.
         price_move_n = 0.0
         price_delta_cents = 0.0
+        price_delta_band = 0
         price_moving = False
         events = []
         # Freeze integrator state so post-warmup baselines are clean —
@@ -508,7 +560,7 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
         f"hist_len={len(hist) if hist else 0} "
         f"lookback={lookback}/{lookback_target} "
         f"past_mid={past_mid if past_mid is None else round(past_mid, 5)} "
-        f"Δ¢={price_delta_cents:+.3f} moving={price_moving} "
+        f"Δ¢={price_delta_cents:+.3f} band={price_delta_band:+d} moving={price_moving} "
         f"sens={session.sensitivity:.2f} w={w:.2f}",
         flush=True,
     )
@@ -524,6 +576,7 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
         "price": round(price_n, 4),
         "price_move": round(price_move_n, 4),
         "price_delta_cents": round(price_delta_cents, 3),
+        "price_delta_band": price_delta_band,
         "price_moving": price_moving,
         "momentum": round(momentum_n, 4),
         "velocity": round(velocity_n, 4),

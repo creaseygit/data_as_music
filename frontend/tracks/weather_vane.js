@@ -3,19 +3,20 @@
 // runs up when price has moved up, down when price has moved down,
 // and stays silent when the price hasn't moved.
 //
-// Driven by `price_delta_cents` — the canonical "did the price move"
-// signal: signed cents over a sensitivity-scaled lookback window.
-// Sign decides direction, magnitude (in cents) decides scale length.
+// Driven by `price_delta_band` — the server-decided, sensitivity-scaled
+// magnitude band (-3..+3, sign = direction, |band| = phrase size):
 //
-//   |Δ| < 0.5¢  → silence (no real movement)
-//   0.5 – 2¢    → 3-note run
-//   2 – 5¢      → 5-note run
-//   > 5¢        → 8-note run (full octave)
+//   band 0   → silence (move within the deadzone)
+//   |band|=1 → 3-note run
+//   |band|=2 → 5-note run
+//   |band|=3 → 8-note run (full octave)
 //
-// Magnitude in cents is the same unit you'd read off the price ticker.
-// The server suppresses delta during the warmup ticks (median-smoother
-// flush), so this track is silent on market load until a real move
-// happens — no settling artifacts.
+// The deadzone and ramps both stretch with the sensitivity slider, so
+// at low sensitivity only large moves reach band 1+ and the music stays
+// quiet. Dynamic range (small/med/large within the active region) is
+// preserved at every setting. The server suppresses delta during the
+// warmup ticks (median-smoother flush), so this track is silent on
+// market load until a real move happens — no settling artifacts.
 //
 // Scale follows `tone` (1=major, 0=minor).
 // category: 'alert', label: 'Weather Vane'
@@ -24,44 +25,35 @@ const weatherVane = (() => {
   let _cachedCode = null;
   let _cachedKey = null;
 
-  function q(v, step) {
-    return Math.round(v / step) * step;
-  }
-
-  // Map |delta_cents| → scale-length band. Returns -1 for silence.
-  function magBand(absCents) {
-    if (absCents < 0.5) return -1;  // silence
-    if (absCents < 2.0) return 0;   // 3-note run
-    if (absCents < 5.0) return 1;   // 5-note run
-    return 2;                        // 8-note run
-  }
-
-  // Ascending runs — packed into the start of the cycle followed by
-  // silence, so notes land ~0.2s apart and the run reads as a quick
-  // scalar flourish (rather than a slow dispersal across 3s).
-  // Always start on scale degree 0 so every "up" move departs from
-  // the same low anchor pitch.
-  const ASC = [
-    "[0 2 4] ~ ~ ~",
-    "[0 2 4 5 7] ~ ~",
-    "[0 2 4 5 7 9 11 12] ~",
-  ];
+  // Ascending runs indexed by |band| (1=3-note, 2=5-note, 3=8-note).
+  // Packed into the start of the cycle followed by silence so notes land
+  // ~0.2s apart and the run reads as a quick scalar flourish (rather than
+  // a slow dispersal across 3s). Always start on scale degree 0 so every
+  // "up" move departs from the same low anchor pitch.
+  const ASC = {
+    1: "[0 2 4] ~ ~ ~",
+    2: "[0 2 4 5 7] ~ ~",
+    3: "[0 2 4 5 7 9 11 12] ~",
+  };
 
   // Descending runs — mirror of ASC: same packing, always start on
   // scale degree 12 so every "down" move departs from the same high
   // anchor pitch.
-  const DESC = [
-    "[12 11 9] ~ ~ ~",
-    "[12 11 9 7 5] ~ ~",
-    "[12 11 9 7 5 4 2 0] ~",
-  ];
+  const DESC = {
+    1: "[12 11 9] ~ ~ ~",
+    2: "[12 11 9 7 5] ~ ~",
+    3: "[12 11 9 7 5 4 2 0] ~",
+  };
 
-  function melodyCode(tone, deltaCents, band, gainMul) {
-    const pattern = deltaCents > 0 ? ASC[band] : DESC[band];
+  function melodyCode(tone, band, deltaCents, gainMul) {
+    const mag = Math.abs(band);
+    const pattern = band > 0 ? ASC[mag] : DESC[mag];
     const scale = tone === 1 ? "C4:major" : "C4:minor";
 
-    // Gain ramps from 0.30 (band 0, ~1¢ move) up to 0.62 (>=10¢).
-    // Saturates at 10¢ so further magnitude doesn't keep climbing.
+    // Gain ramps with raw cents saturation. Saturation point scales with
+    // sensitivity through the band thresholds — at low sens the same
+    // 0.3→0.6 ramp fills out across a wider cents range, preserving
+    // dynamic range without each track needing to know the threshold.
     const sat = Math.min(1.0, Math.abs(deltaCents) / 10.0);
     const g = (0.30 + sat * 0.32) * gainMul;
 
@@ -93,29 +85,26 @@ const weatherVane = (() => {
 
     evaluateCode(data) {
       const deltaCents = data.price_delta_cents || 0;
+      const serverBand = data.price_delta_band ?? 0;  // -3..+3, server-decided
       const moving = data.price_moving === true;
       const tone = data.tone !== undefined ? data.tone : 1;
 
-      // Quantize delta to 0.25¢ steps to keep the cache stable across
-      // tiny variations. Sign is preserved so direction survives.
-      const dQ = q(deltaCents, 0.25);
       // Two gates:
       //   moving — per-tick price-actually-changed boolean from the server
-      //   magBand — magnitude band from the rolling cents delta
-      // Both must be open to play. moving=false means silence even if the
-      // rolling lookback still shows a delta from a past move.
-      const band = moving ? magBand(Math.abs(dQ)) : -1;
+      //   serverBand — magnitude band from the rolling cents delta, scaled
+      //                by the user's sensitivity. 0 = silence (deadzone).
+      // Both must be open to play.
+      const band = moving ? serverBand : 0;
 
       const gainKey = this.getGain('melody').toFixed(2);
-      const key = `${moving ? dQ : 'flat'}:${tone}:${gainKey}`;
+      const key = `${band}:${tone}:${gainKey}`;
       const cacheHit = _cachedCode && _cachedKey === key;
 
-      const decision = band < 0
-        ? (moving ? 'silence (sub-band)' : 'silence (flat)')
-        : `${band === 0 ? 3 : band === 1 ? 5 : 8}-note ${dQ > 0 ? 'UP' : 'DOWN'}`;
+      const decision = band === 0
+        ? (moving ? 'silence (deadzone)' : 'silence (flat)')
+        : `${Math.abs(band) === 1 ? 3 : Math.abs(band) === 2 ? 5 : 8}-note ${band > 0 ? 'UP' : 'DOWN'}`;
       console.log(
-        `[WV] Δ¢=${deltaCents.toFixed(3)} `
-        + `qΔ=${dQ.toFixed(2)} moving=${moving} band=${band} → ${decision}`
+        `[WV] Δ¢=${deltaCents.toFixed(3)} band=${band} moving=${moving} → ${decision}`
         + (cacheHit ? ' (cache)' : '')
       );
 
@@ -123,10 +112,10 @@ const weatherVane = (() => {
 
       let code = "setcpm(20);\n";
 
-      if (band < 0) {
+      if (band === 0) {
         code += "$: silence;\n";
       } else {
-        code += melodyCode(tone, dQ, band, this.getGain('melody'));
+        code += melodyCode(tone, band, deltaCents, this.getGain('melody'));
       }
 
       _cachedCode = code;

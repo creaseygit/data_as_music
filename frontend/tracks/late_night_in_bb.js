@@ -401,28 +401,29 @@ $: note(\`${bassNotes}\`)
   // Melody — motif-based piano melody via .scale()
   // Always Bb pentatonic — direction (ascending/descending) conveys market
   // mood, not mode changes. Comp/bass handle harmonic shifts underneath.
-  // Direction + magnitude come from price_delta_cents (matches Weather
-  // Vane bands). intBand only adds octave embellishment.
-  function melodyCode(tone, dCents, intBand, volatility, gainMul) {
+  // Direction + magnitude come from server-decided price_delta_band
+  // (sensitivity-scaled). Raw cents still shapes the velocity and gain
+  // curves so loudness within a band scales with the actual move.
+  function melodyCode(tone, band, dCents, intBand, volatility, gainMul) {
     const scale = "Bb4:pentatonic";
-    const absC = Math.abs(dCents);
-    const dir = dCents > 0 ? 1 : -1;
+    const mag = Math.abs(band);
+    const dir = band > 0 ? 1 : -1;
 
     // Direction × magnitude band selects the phrase set.
     let melodyPattern;
     if (dir > 0) {
-      melodyPattern = absC >= 5.0 ? MOTIF_RISE_HIGH
-                    : absC >= 2.0 ? MOTIF_RISE_MED
+      melodyPattern = mag >= 3 ? MOTIF_RISE_HIGH
+                    : mag >= 2 ? MOTIF_RISE_MED
                     : MOTIF_RISE_LOW;
     } else {
-      melodyPattern = absC >= 5.0 ? MOTIF_FALL_HIGH
-                    : absC >= 2.0 ? MOTIF_FALL_MED
+      melodyPattern = mag >= 3 ? MOTIF_FALL_HIGH
+                    : mag >= 2 ? MOTIF_FALL_MED
                     : MOTIF_FALL_LOW;
     }
 
     // Cents saturation drives velocity range and overall gain — same
-    // shape as Weather Vane: ramp from gate (≈0.5¢) up to 10¢ saturation.
-    const sat = Math.min(1.0, absC / 10.0);
+    // shape as Weather Vane: ramp up to 10¢ raw move at saturation.
+    const sat = Math.min(1.0, Math.abs(dCents) / 10.0);
     const vel = (0.30 + sat * 0.30).toFixed(3);
     const velMax = (0.40 + sat * 0.20).toFixed(3);
     const delayFb = (0.15 + volatility * 0.25).toFixed(2);
@@ -588,7 +589,8 @@ $: s("<~ ~ ~ ~ ~ ~ ~ [~ ~ [sd ~] [~ ~ sd]]>").gain(${(0.22 * energy * gainMul).t
       const vel = data.velocity || 0;
       const momentum = data.momentum || 0;
       const volatility = data.volatility || 0;
-      const dCentsRaw = data.price_delta_cents || 0;
+      const dCents = data.price_delta_cents || 0;
+      const serverBand = data.price_delta_band ?? 0;  // -3..+3, server-decided
       const moving = data.price_moving === true;
 
       // Quantize for cache stability
@@ -596,7 +598,6 @@ $: s("<~ ~ ~ ~ ~ ~ ~ [~ ~ [sd ~] [~ ~ sd]]>").gain(${(0.22 * energy * gainMul).t
       const volQ = q(volatility, 0.1);
       const momQ = q(momentum, 0.1);
       const momMagQ = Math.abs(momQ);
-      const dCents = q(dCentsRaw, 0.25);  // sign preserved
 
       // Direction from momentum sign — drives bass walk + chord cycling.
       // Bass intentionally leans on the longer-term trend; melody uses
@@ -615,11 +616,16 @@ $: s("<~ ~ ~ ~ ~ ~ ~ [~ ~ [sd ~] [~ ~ sd]]>").gain(${(0.22 * energy * gainMul).t
       const melodicBand = Math.max(intBand, momBand);
 
       // Melody gate: same two-signal rule as Weather Vane.
-      const melodyOn = moving && Math.abs(dCents) >= 0.5;
+      // serverBand is 0 inside the deadzone, acting as the magnitude
+      // gate; price_moving handles "is the price ticking right now".
+      const melodyBand = moving ? serverBand : 0;
+      const melodyOn = melodyBand !== 0;
 
       const gainKey = Object.keys(this.voices)
         .map(v => this.getGain(v).toFixed(2)).join(':');
-      const melodyKey = melodyOn ? dCents.toFixed(2) : 'off';
+      // Quantize cents to 0.5¢ for the gain saturation curve cache.
+      const centsKey = Math.round(dCents * 2) / 2;
+      const melodyKey = melodyOn ? `${melodyBand}@${centsKey}` : 'off';
       const key = `${tone}:${intBand}:${melodicBand}:${hQ}:${momDir}:${melodyKey}:${volQ}:${gainKey}`;
 
       if (_cachedCode && _cachedKey === key) return _cachedCode;
@@ -658,11 +664,13 @@ $: s("<~ ~ ~ ~ ~ ~ ~ [~ ~ [sd ~] [~ ~ sd]]>").gain(${(0.22 * energy * gainMul).t
         ? hihatCode(intBand, energy, this.getGain('hihat'))
         : '\n$: silence;\n';
 
-      // 6. Melody — fires only when price is actually ticking. Direction
-      // and magnitude come from price_delta_cents; heat/momentum no longer
-      // gate it (the rest of the band conveys trading activity).
+      // 6. Melody — fires only when price is actually ticking and the
+      // server-decided band is non-zero. Direction + magnitude come from
+      // price_delta_band; raw cents shapes the gain-saturation curve.
+      // Heat/momentum no longer gate it (the rest of the band conveys
+      // trading activity).
       code += melodyOn
-        ? melodyCode(tone, dCents, intBand, volQ, this.getGain('melody'))
+        ? melodyCode(tone, melodyBand, dCents, intBand, volQ, this.getGain('melody'))
         : '\n$: silence;\n';
 
       // 7. Ghost snare (intBand >= 1 AND heat > 0.40)

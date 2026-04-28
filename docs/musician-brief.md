@@ -84,19 +84,17 @@ On top of the continuous data stream, you'll receive **events** — discrete mom
 
 ## The Sensitivity Slider
 
-Each listener has a **sensitivity slider** (0 – 1). You don't need to handle this — it's applied before your track receives data. But it's worth understanding what it does:
+Each listener has a single **sensitivity slider** (0–100%) — a unified "how reactive should the music be?" knob. You don't need to handle it — every signal you receive is already scaled before it reaches your track. But it's worth understanding what it does, because the same market sounds *very* different at the two ends:
 
-**Activity signals** (`heat`, `trade_rate`, `spread`) get their amplitude scaled. High sensitivity makes quiet markets sound more active; low sensitivity makes them calmer.
-
-**Window signals** (`price_move`, `momentum`, `velocity`, `volatility`) get their **analysis window** changed — like switching between short and long moving averages on a trading chart:
-
-| Sensitivity | Window | Analogy |
+| Sensitivity | What changes | Listener experience |
 | --- | --- | --- |
-| High (1.0) | ~45 seconds | Scalper — reacts to every blip |
-| Default (0.5) | ~2.5 minutes | Day trader — medium-term trends |
-| Low (0.0) | ~8 minutes | Swing trader — only sustained moves |
+| High (100%) | Tight band thresholds (~0.1¢/0.5¢/1¢), short lookback (~15s), inflated activity signals | Every wiggle fires a melody phrase. Drums get busy on small heat blips. |
+| Default (50%) | Standard bands (0.5¢/2¢/5¢), ~4-min lookback | Balanced — most listeners want this. |
+| Low (0%) | Wide bands (2¢/8¢/20¢), 1-hr lookback, dampened activity signals | Only sustained, large moves play any melody at all. Drums stay calm. |
 
-This means the same market at different sensitivities will feel musically different — one listener's "momentum is high" might be another's "momentum is near zero" because they're looking at different time windows.
+Crucially, the band shape stays the same at every setting — three magnitude bands, deadzone in the middle. The slider just scales what counts as "small" vs "large". So a track that fires "8-note UP at large band" still fires; the slider only redefines how big a move needs to be to land in that band. **Dynamic range is preserved.**
+
+This means the same market at different sensitivities will feel very different — one listener's "the melody is going wild" might be another's "totally silent" because they've drawn the threshold lines in different places.
 
 ## Existing Tracks — What's Already Been Done
 
@@ -107,10 +105,10 @@ Full jazz piano trio with two harmonic worlds: bullish (Bb major, ii-V-I-IV) and
 Dusty, mellow lo-fi beats (~80 BPM). Swung drums, warm sine bass, Rhodes comping, sparse pentatonic melodies, vinyl texture. Bullish = Bb major, bearish = G minor — flat keys for that warm lo-fi register. `heat` controls layer density (sparse → full kit). `trade_rate` + `velocity` drive the intensity band: rim shots → swung 8ths → dropout 16ths. Momentum drives the Rhodes voicings, bass walk and pad progression. **Melody follows the Weather Vane pattern** — silent when price isn't ticking, direction and phrase length set by the recent cents move. Volatility adds reverb, detuning, and wobble. Price tints the global filter warmth.
 
 ### So Over, So Back (meme sampler)
-Single voice; six vocal samples on a signed intensity ladder. **Same Weather Vane gate** — silent when price isn't ticking. The recent cents move picks both which sample plays and how often it fires. Small down (0.5–2¢) → "over" every ~9s; medium down (2–5¢) → "so over" every ~6s; large down (≥5¢) → "so fucking over" every cycle. Mirror set on the up side: "back" / "so back" / "so fucking back". The cells line up 1:1 with the Now-Playing delta gauge.
+Single voice; six vocal samples on a signed intensity ladder. **Same Weather Vane gate** — silent when price isn't ticking. The server-decided band picks both which sample plays and how often it fires. Small down → "over" every ~9s; medium down → "so over" every ~6s; large down → "so fucking over" every cycle. Mirror set on the up side: "back" / "so back" / "so fucking back". The six samples line up 1:1 with the Now-Playing delta gauge cells, at every sensitivity setting.
 
 ### Weather Vane (alert track)
-Single-voice vibraphone that indicates price direction. Silent whenever the price isn't ticking this cycle. Gated on `price_moving` (true iff the mid changed ≥0.05¢ this tick) so the voice stops the instant movement stops — no lingering melody after a move ends. When the gate is open, scale length comes from `price_delta_cents` magnitude: 3-note run at 0.5–2¢, 5-note run at 2–5¢, 8-note octave run above 5¢. Direction = sign of the rolling delta; scale = major when bullish, minor when bearish. Sensitivity scales the lookback window (15s at max → 5min at min), so cranking it up makes scale length respond to shorter-horizon moves. No drums, no chords — direction-only, by design. **The same gating + magnitude pattern is now the canonical "melody from price" recipe — Late Night in Bb, Digging in the Markets, and So Over, So Back all use it for their melody/voice.**
+Single-voice vibraphone that indicates price direction. Silent whenever the price isn't ticking this cycle. Gated on `price_moving` (true iff the mid changed ≥0.05¢ this tick) so the voice stops the instant movement stops — no lingering melody after a move ends. When the gate is open, scale length comes from the server-decided magnitude band: 3-note run at small, 5-note run at medium, 8-note octave run at large. Direction = sign of the band; scale = major when bullish, minor when bearish. The sensitivity slider stretches the band thresholds, so cranking it up makes the same small wiggle reach a higher band, while cranking it down means only sustained large moves register. No drums, no chords — direction-only, by design. **The same gating + magnitude pattern is now the canonical "melody from price" recipe — Late Night in Bb, Digging in the Markets, and So Over, So Back all use it for their melody/voice.**
 
 ## Tools for Tuning
 
@@ -120,20 +118,21 @@ Single-voice vibraphone that indicates price direction. Silent whenever the pric
 
 ```
 CONTINUOUS (every 3 seconds):
-  heat                0–1      Energy level (master dial)
-  price               0–1      Where the market is
-  price_delta_cents   ±cents   Cents moved over lookback (magnitude of recent move)
-  price_moving        bool     Price ticked this cycle (gate — silence when false)
-  price_move         -1–1      Legacy unitless integrator
-  momentum           -1–1      Sustained trend direction (section mood)
-  velocity     0–1      Speed of change (unsigned)
-  volatility   0–1      Erratic-ness / uncertainty
-  trade_rate   0–1      Trading frequency
-  spread       0–1      Order book gap
-  tone         0|1      Bullish (1) or bearish (0)
+  heat                0–1       Energy level (master dial)
+  price               0–1       Where the market is
+  price_moving        bool      Price ticked this cycle (gate — silence when false)
+  price_delta_band   -3..+3     Server-decided magnitude band (sign=direction, |band|=size, 0=silence)
+  price_delta_cents   ±cents    Raw cents moved over lookback (for gain saturation)
+  price_move         -1–1       Legacy unitless integrator
+  momentum           -1–1       Sustained trend direction (section mood)
+  velocity            0–1       Speed of change (unsigned)
+  volatility          0–1       Erratic-ness / uncertainty
+  trade_rate          0–1       Trading frequency
+  spread              0–1       Order book gap
+  tone                0|1       Bullish (1) or bearish (0)
 
 EVENTS (one-shot):
   spike        magnitude 0–1
-  price_move   direction 1|-1, magnitude 0–1
+  price_step   direction 1|-1, magnitude 0–1
   resolved     result 1|-1
 ```

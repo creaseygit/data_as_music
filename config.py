@@ -64,7 +64,20 @@ WARMUP_TICKS       = 4
 # mid. Direction = sign, magnitude = how much the price moved over the
 # lookback window. Sensitivity controls N (log-uniform):
 PRICE_DELTA_TICKS_MIN = 5       # sens=1.0 → 15s lookback
-PRICE_DELTA_TICKS_MAX = 100     # sens=0.0 → 5min lookback
+PRICE_DELTA_TICKS_MAX = 1200    # sens=0.0 → 1hr lookback (3s × 1200 = 3600s)
+
+# ── Magnitude bands (deadzone + ramps) ──────────────────
+# price_delta_band collapses the signed cents move into one of seven cells:
+#   -3 / -2 / -1 / 0 / +1 / +2 / +3   (negative=down, 0=silence, positive=up)
+# Three thresholds separate band boundaries (in cents). The deadzone is
+# everything below the LOW threshold; LOW–MED–HIGH are the three rising
+# ramps either side. At sens=0.5 the thresholds are the defaults below;
+# both sides scale together by a sensitivity factor (4× wider at sens=0.0,
+# 4× tighter at sens=1.0) so the band shape stays self-similar — the
+# slider simply tells the music what counts as "small" vs "huge".
+PRICE_DELTA_BAND_LOW   = 0.5    # cents — start of band 1 (deadzone ends here)
+PRICE_DELTA_BAND_MED   = 2.0    # cents — start of band 2
+PRICE_DELTA_BAND_HIGH  = 5.0    # cents — start of band 3
 
 # ── Browse categories ──────────────────────────────────
 # Tag IDs for the Browse tabs in the web UI

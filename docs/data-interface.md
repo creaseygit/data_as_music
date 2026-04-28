@@ -10,8 +10,9 @@ All price-derived signals share a single source of truth: a smoothed mid-price t
 | ------------- | ---------- | ------------------------------------------------------------------- |
 | `heat`        | 0.0 – 1.0  | Composite market activity (velocity·0.35 + trade_rate·0.40 + volume·0.15 + spread·0.10). Uses the scorer's fixed 5-min velocity window internally, so heat reflects per-market activity independent of the client's sensitivity. Power-curve shaped by sensitivity before send. |
 | `price`       | 0.0 – 1.0  | Smoothed WebSocket bid/ask midpoint; falls back to the Gamma REST `outcome_prices` value while book data hasn't arrived yet. |
-| `price_delta_cents` | signed, in cents | **Rolling magnitude of recent movement.** Signed delta in cents, `(smoothed_mid_now − smoothed_mid_N_ticks_ago) · 100`. N is sensitivity-scaled (5 ticks ≈ 15s at max sens, ~22 ticks ≈ 66s at default, 100 ticks ≈ 5min at min sens). Lookback is clamped so it never reaches past the warmup boundary. Good for picking magnitude bands (scale length, voice density, etc.), but **do not use as a silence gate** — it sustains for the lookback duration after a move ends, and inverts sign as the move slides out of the window. |
-| `price_moving` | bool     | **Canonical "is the price ticking right now" gate.** True iff the smoothed mid changed by ≥0.05¢ since the previous broadcast tick. False during warmup and on flat markets. Pair with `price_delta_cents`: gate on `price_moving`, size on `price_delta_cents`. |
+| `price_delta_cents` | signed, in cents | **Raw rolling magnitude of recent movement.** Signed delta in cents, `(smoothed_mid_now − smoothed_mid_N_ticks_ago) · 100`. N is sensitivity-scaled (5 ticks ≈ 15s at max sens, ~77 ticks ≈ 4min at default, 1200 ticks ≈ 1hr at min sens). Lookback is clamped so it never reaches past the warmup boundary. Use this for gain-saturation curves (loudness within a band scales with raw move size). **Do not use as a silence gate** — it sustains for the lookback after a move ends, and inverts sign as the move slides out of the window. For musical decisions about "which band am I in?", use `price_delta_band` instead. |
+| `price_delta_band` | int -3..+3 | **Server-decided magnitude band.** Single source of truth for "which gauge cell / which phrase length". Sign = direction (negative = down, positive = up); magnitude = phrase size (1 = small, 2 = medium, 3 = large). 0 = silence (move sits inside the sensitivity-scaled deadzone). Thresholds scale together with sensitivity: at sens=0.5 the bands sit at 0.5 / 2 / 5 ¢; at sens=0 they widen ×4 (2 / 8 / 20 ¢); at sens=1 they tighten ×4 (0.125 / 0.5 / 1.25 ¢). Read this directly so the audio always matches the visual delta gauge. |
+| `price_moving` | bool     | **Canonical "is the price ticking right now" gate.** True iff the smoothed mid changed by ≥0.05¢ since the previous broadcast tick. False during warmup and on flat markets. Pair with `price_delta_band`: gate on `price_moving`, pick the phrase from `price_delta_band`. |
 | `price_move`  | -1.0 – 1.0 | Signed leaky integrator on per-tick mid deltas. Same direction as `price_delta_cents` but unitless magnitude with natural decay-to-zero half-life (sensitivity-scaled). Older signal; new tracks should prefer `price_delta_cents` for change-driven musical gestures. |
 | `momentum`    | -1.0 – 1.0 | Signed trend direction (dual-EMA on smoothed mid, MACD-inspired). Fast EMA period = window/3, slow = window. Normalized so ±5¢ EMA divergence → ±1.0. |
 | `velocity`    | 0.0 – 1.0  | Price excursion magnitude over the sensitivity-scaled window, computed as `(max − min) / 0.10`. Unsigned. Reads `(max − min)` rather than endpoint subtraction so a market that swung up 5¢ and came back reads 0.5, not 0. |
@@ -44,31 +45,43 @@ Total noise-removal lag on any signal is under 9s, even at max sensitivity.
 
 ## How Sensitivity Works
 
-Sensitivity has two different effects depending on the signal, mirroring how traders set indicator periods vs. how they interpret amplitude:
+Sensitivity is a single user-facing **reactivity** slider (0–100%) that controls everything price-driven on the server. The user sees one knob; under the hood it scales four things together so the music's response stays coherent at every setting:
 
-### Window-scaled signals — sensitivity = timescale
+### 1. Band thresholds (deadzone + ramps)
 
-`price_move`, `momentum`, `velocity`, and `volatility` use sensitivity to control their **analysis window**. This changes *what* the signal measures, not just how loud it is.
+`price_delta_band` is the server-decided cell index that drives melody phrase length (Weather Vane / Digging / Late Night) and sample selection (So Over, So Back). The thresholds between cells scale with sensitivity:
 
-| Sensitivity | Window  | Trading analogy                        |
-| ----------- | ------- | -------------------------------------- |
-| 1.0 (max)   | ~45s    | Scalper — catches quick pumps/dumps    |
-| 0.75        | ~1.3min | Intraday — responsive to short moves   |
-| 0.5 (default)| ~2.5min| Day trader — medium-term trend         |
-| 0.25        | ~4min   | Position — filters out noise           |
-| 0.0 (min)   | ~8min   | Swing trader — only sustained moves    |
+| Sensitivity | LOW threshold | MED threshold | HIGH threshold | Feel                          |
+| ----------- | ------------- | ------------- | -------------- | ----------------------------- |
+| 1.0 (max)   | 0.125¢        | 0.5¢          | 1.25¢          | Snappy — every wiggle fires   |
+| 0.5 (default) | 0.5¢        | 2¢            | 5¢             | Balanced                      |
+| 0.0 (min)   | 2¢            | 8¢            | 20¢            | Only big moves register       |
 
-The mapping is exponential, like MA period intuition: short-period differences matter more than long ones (9-EMA vs 20-EMA is a bigger feel difference than 180 vs 200).
+Both the deadzone (silence below LOW) and the ramps stretch together by the same factor (`4^(1 − 2·sensitivity)`), so the band shape stays self-similar — the slider just tells the music what counts as "small" vs "huge". Dynamic range within the bands (small/med/large phrases) is preserved at every sensitivity.
 
-For `price_move`, the saturation point (what counts as magnitude 1.0) also scales with √window, so a move's magnitude is expressed relative to what's typical for that timescale.
+### 2. Lookback window
 
-### Power-curve signals — sensitivity = amplitude
+`price_delta_cents` is computed over a sensitivity-scaled tick window:
+
+| Sensitivity | Window     | Trading analogy                        |
+| ----------- | ---------- | -------------------------------------- |
+| 1.0 (max)   | ~15s       | Scalper — reacts to every flicker      |
+| 0.5 (default) | ~4min    | Intraday                                |
+| 0.0 (min)   | ~1hr       | News/event horizon                      |
+
+A wider window means short-lived flickers get averaged out before they register, complementing the wider thresholds at low sensitivity. Same shape (log-uniform, anchored at 15s and 1hr) applies to `price_move` (leaky integrator half-life) and to `velocity` / `volatility` / `momentum` analysis windows.
+
+### 3. Power-curve signals — amplitude
 
 `heat`, `trade_rate`, and `spread` are transformed by a power curve `value^exp` where `exp = 4^(1 − 2·sensitivity)`:
 
 - At 50% (default): linear, values unchanged
-- At 100%: small values inflated (more reactive)
-- At 0%: small values crushed (less reactive)
+- At 100%: small values inflated (drums get busy on small heat blips)
+- At 0%: small values crushed (drums stay calm unless there's real activity)
+
+### 4. Event thresholds
+
+`spike` and `price_step` event firing thresholds scale by `√(half_life / default)`, so at high sensitivity small moves trigger events and at low sensitivity only large jumps do.
 
 ### Unaffected signals
 
@@ -93,7 +106,8 @@ The signals are designed to cover non-overlapping dimensions:
 | Signal       | Window    | Signed? | What it answers                          |
 | ------------ | --------- | ------- | ---------------------------------------- |
 | `price`      | instant (smoothed) | n/a | "Where is the market right now?"         |
-| `price_delta_cents` | 15s–5min | yes | "How many cents has price moved over the lookback window?" (rolling magnitude) |
+| `price_delta_cents` | 15s–1hr | yes | "How many cents has price moved over the lookback window?" (raw magnitude — for gain saturation) |
+| `price_delta_band`  | 15s–1hr | yes | "Which gauge cell is lit?" (sensitivity-scaled band, -3..+3, 0=silence) |
 | `price_moving` | 1 tick | n/a | "Is the price ticking this cycle?" (gate) |
 | `price_move` | 45s–8min  | yes     | Legacy unitless integrator; same direction as `price_delta_cents`. |
 | `momentum`   | 45s–8min  | yes     | "What's the sustained trend direction?"  |

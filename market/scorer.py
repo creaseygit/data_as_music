@@ -33,9 +33,10 @@ class MarketScorer:
     MID_SMOOTH_WINDOW = 3
 
     # Depth of the per-market mid price history (in samples). At 3s cadence,
-    # 200 samples ≈ 10 min — enough for the 5-min velocity window plus
-    # headroom for the longest sensitivity-scaled windows (8 min).
-    MID_HISTORY_MAXLEN = 200
+    # 1300 samples ≈ 65 min — covers the 1hr lookback at the lowest
+    # sensitivity (PRICE_DELTA_TICKS_MAX=1200) with a small safety margin.
+    # Memory cost is trivial: a few thousand floats per watched market.
+    MID_HISTORY_MAXLEN = 1300
 
     def __init__(self):
         # Latest top-of-book per market, updated as book events stream in.

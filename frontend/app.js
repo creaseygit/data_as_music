@@ -8,11 +8,13 @@ let currentMarketSlug = null;
 let currentEventSlug = null;
 let audioRunning = false;
 
-// Server-facing sensitivity (0-1). Set by time-window preset buttons —
-// there's no slider; the four presets are the only inputs. Default of
-// 0.62 ≈ 120 s timescale aligns with the "2m" preset so one button always
-// appears active. Kept in sync with the active preset via _selectPreset().
-const _SENSITIVITY_DEFAULT = 0.62;
+// Server-facing sensitivity (0-1). Set by the bare percentage slider in
+// the audio bar. The server interprets this as a unified "reactivity"
+// knob: smaller values widen the price-delta deadzone, stretch the band
+// thresholds, lengthen the analysis window, and dampen the power-curve
+// signals together — so at low sensitivity the music ignores small moves
+// across the board, while preserving dynamic range within the bands.
+const _SENSITIVITY_DEFAULT = 0.5;
 let currentSensitivity = _SENSITIVITY_DEFAULT;
 
 // ── ET → local time conversion for market names ──
@@ -117,7 +119,7 @@ function applyHashOnce() {
     const pct = parseInt(params.sens);
     if (pct >= 0 && pct <= 100) {
       currentSensitivity = pct / 100;
-      _updatePresetHighlight(pct);
+      _updateSensitivityUI(pct);
       wsClient.send({ action: 'sensitivity', value: currentSensitivity });
     }
   }
@@ -229,43 +231,34 @@ function onVolumeChange(rawVal) {
   }, 50);
 }
 
-// ── Time window / sensitivity (sent to server) ──
-// The server still talks in "sensitivity 0-1" over the wire, but the UI
-// only exposes four named timescale presets. These helpers convert
-// between slider % and timescale seconds using the same log-uniform
-// mapping as sensitivity_timescale() in server.py (HL_MIN=15s, HL_MAX=3600s).
-const _TIMESCALE_HL_MIN = 15;
-const _TIMESCALE_HL_MAX = 3600;
-
-function _pctFromTimescale(seconds) {
-  const s = 1 - Math.log(seconds / _TIMESCALE_HL_MIN) / Math.log(_TIMESCALE_HL_MAX / _TIMESCALE_HL_MIN);
-  return Math.round(Math.max(0, Math.min(100, s * 100)));
+// ── Sensitivity (sent to server) ──
+// The slider is a bare 0–100% control. The server reads `sensitivity` as
+// the unified reactivity knob — band thresholds, lookback window, event
+// thresholds and intensity power-curve all scale off the same value.
+function _updateSensitivityUI(pct) {
+  const slider = document.getElementById('sensitivity-slider');
+  const label = document.getElementById('sensitivity-label');
+  if (slider) slider.value = pct;
+  if (label) label.textContent = `${pct}%`;
 }
 
-// Highlight the preset button whose target is closest to the given pct.
-// Tolerance ±2 pct absorbs rounding from hash round-trips; unmatched
-// values (e.g. a legacy shared URL with a custom pct) leave nothing lit.
-function _updatePresetHighlight(pct) {
-  const buttons = document.querySelectorAll('.timescale-preset');
-  buttons.forEach(btn => {
-    const onclick = btn.getAttribute('onclick') || '';
-    const m = onclick.match(/setTimescalePreset\((\d+)\)/);
-    const presetPct = m ? _pctFromTimescale(parseInt(m[1])) : -1;
-    btn.classList.toggle('active', presetPct >= 0 && Math.abs(presetPct - pct) <= 2);
-  });
-}
-
-function setTimescalePreset(seconds) {
-  const pct = _pctFromTimescale(seconds);
+let _sensSendDebounce;
+function onSensitivityChange(pct) {
+  pct = Math.max(0, Math.min(100, parseInt(pct, 10)));
   currentSensitivity = pct / 100;
-  _updatePresetHighlight(pct);
-  wsClient.send({ action: 'sensitivity', value: currentSensitivity });
-  updateHash();
+  _updateSensitivityUI(pct);
+  // Debounce while dragging so we don't flood the WS with tick-by-tick
+  // updates; the URL hash gets the same treatment.
+  clearTimeout(_sensSendDebounce);
+  _sensSendDebounce = setTimeout(() => {
+    wsClient.send({ action: 'sensitivity', value: currentSensitivity });
+    updateHash();
+  }, 50);
 }
 
-// Initial highlight so the default preset appears active on page load.
+// Initial label/slider sync on page load.
 // app.js is loaded at the bottom of <body> so the DOM is already parsed.
-_updatePresetHighlight(Math.round(currentSensitivity * 100));
+_updateSensitivityUI(Math.round(currentSensitivity * 100));
 
 // ── Share ──
 function shareUrl() {
@@ -539,14 +532,16 @@ function _renderVoiceRack() {
       // Each cell is self-labelled with arrow + note-count so the band
       // structure is readable without knowing the colour code. Active
       // cell fills brightly; _updateVoiceRack toggles the .active class.
+      // Bands are server-decided (sensitivity-scaled), so the labels
+      // describe the musical response (phrase length), not fixed ¢ ranges.
       const cellSpec = [
-        { band: -3, label: '▼8', cls: 'down', title: '8-note DOWN (≥5¢)' },
-        { band: -2, label: '▼5', cls: 'down', title: '5-note DOWN (2–5¢)' },
-        { band: -1, label: '▼3', cls: 'down', title: '3-note DOWN (0.5–2¢)' },
-        { band:  0, label: '·',  cls: 'zero', title: 'silence (<0.5¢ or flat)' },
-        { band:  1, label: '▲3', cls: 'up',   title: '3-note UP (0.5–2¢)' },
-        { band:  2, label: '▲5', cls: 'up',   title: '5-note UP (2–5¢)' },
-        { band:  3, label: '▲8', cls: 'up',   title: '8-note UP (≥5¢)' },
+        { band: -3, label: '▼8', cls: 'down', title: '8-note DOWN (large move)' },
+        { band: -2, label: '▼5', cls: 'down', title: '5-note DOWN (medium move)' },
+        { band: -1, label: '▼3', cls: 'down', title: '3-note DOWN (small move)' },
+        { band:  0, label: '·',  cls: 'zero', title: 'silence (deadzone or flat)' },
+        { band:  1, label: '▲3', cls: 'up',   title: '3-note UP (small move)' },
+        { band:  2, label: '▲5', cls: 'up',   title: '5-note UP (medium move)' },
+        { band:  3, label: '▲8', cls: 'up',   title: '8-note UP (large move)' },
       ];
       const cells = cellSpec.map(c =>
         `<div class="delta-cell delta-cell-${c.cls}" `
@@ -568,16 +563,13 @@ function _renderVoiceRack() {
   }).join('');
 }
 
-// Map (cents, moving) → band index in [-3, 3]. 0 = silence (gate closed
-// or magnitude below 0.5¢ floor). Mirrors Weather Vane's magBand exactly.
-function _deltaBand(cents, moving) {
+// Band index in [-3, 3] keyed to the server-computed price_delta_band.
+// Server is the single source of truth for band thresholds (which scale
+// with sensitivity), so the gauge cell always matches the audio decision.
+// Closed gate (price_moving=false) collapses to 0, regardless of cents.
+function _deltaBand(band, moving) {
   if (!moving) return 0;
-  const a = Math.abs(cents);
-  if (a < 0.5) return 0;
-  const sign = cents > 0 ? 1 : -1;
-  if (a < 2.0) return sign * 1;
-  if (a < 5.0) return sign * 2;
-  return sign * 3;
+  return band | 0;
 }
 
 function _updateVoiceRack(data) {
@@ -600,7 +592,7 @@ function _updateVoiceRack(data) {
     if (voiceDef.meter === 'delta') {
       const cents = data.price_delta_cents ?? 0;
       const moving = data.price_moving === true;
-      const band = _deltaBand(cents, moving);
+      const band = _deltaBand(data.price_delta_band ?? 0, moving);
       const gauge = document.getElementById('dgauge-' + voiceId);
       if (gauge) {
         gauge.classList.toggle('delta-gauge-flat', !moving);

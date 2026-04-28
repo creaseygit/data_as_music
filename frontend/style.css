@@ -40,19 +40,6 @@ button.danger:hover { background: #ff4444; color: #0a0a0f; }
 button.active { background: #00ff88; color: #0a0a0f; font-weight: bold; }
 button:disabled { opacity: 0.3; cursor: default; }
 
-/* Timescale preset chips — shortcuts to set the time-window slider to a
-   named value. Subtle so they sit beneath the slider, not as primary actions. */
-button.timescale-preset {
-  padding: 2px 8px; font-size: 11px;
-  border-color: #333; color: #777; background: transparent;
-}
-button.timescale-preset:hover {
-  border-color: #ff9900; color: #ff9900; background: transparent;
-}
-button.timescale-preset.active {
-  border-color: #ff9900; color: #ff9900; background: rgba(255, 153, 0, 0.1);
-}
-
 select {
   background: #1a1a2e; color: #e0e0e0; border: 1px solid #333;
   padding: 8px 12px; border-radius: 4px; font-family: inherit; font-size: 13px;
@@ -337,11 +324,13 @@ input[type="range"]::-moz-range-thumb {
 
 /* Horizontal stepped delta gauge — used for melody-style voices that
    represent a signed magnitude with discrete bands (silence / 3-note /
-   5-note / 8-note up or down). Mirrors Weather Vane's magBand mapping.
-   Each cell self-labels with arrow + note count (▼8 ▼5 ▼3 · ▲3 ▲5 ▲8)
-   so the band structure is readable without knowing the colour code.
-   Active cell fills brightly with bold text. When the per-tick gate
-   is closed (price_moving=false) the whole gauge fades. */
+   5-note / 8-note up or down). Driven by the server-decided
+   `price_delta_band` so the lit cell always matches what the audio
+   does, at every sensitivity setting. Each cell self-labels with
+   arrow + note count (▼8 ▼5 ▼3 · ▲3 ▲5 ▲8) so the band structure is
+   readable without knowing the colour code. Active cell fills brightly
+   with bold text. When the per-tick gate is closed (price_moving=false)
+   the whole gauge fades. */
 .delta-gauge {
   display: grid;
   grid-template-columns: repeat(7, 1fr);

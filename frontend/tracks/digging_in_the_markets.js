@@ -274,29 +274,31 @@ const diggingInTheMarkets = (() => {
   >`;
 
   // ── Melody: motif-based phrases with delay ──
-  // Direction from sign(price_delta_cents); magnitude band from |cents|
-  // (matches Weather Vane bands). Intensity (intBand) only adds octave
-  // embellishment — it doesn't pick the phrase set.
-  function melodyCode(tone, dCents, intBand, volat, gainMul) {
-    const absC = Math.abs(dCents);
+  // Direction + magnitude come from server-decided price_delta_band
+  // (-3..+3, sensitivity-scaled). Intensity (intBand) only adds octave
+  // embellishment — it doesn't pick the phrase set. Raw cents still
+  // shapes the gain saturation curve so loudness within a band scales
+  // with the actual move size.
+  function melodyCode(tone, band, dCents, intBand, volat, gainMul) {
+    const mag = Math.abs(band);
+    const dir = band > 0 ? 1 : -1;
     const scale = "Bb4:pentatonic"; // always — direction conveys mood, not mode
 
     // Direction × magnitude band selects the phrase set.
-    const dir = dCents > 0 ? 1 : -1;
     let melodyPattern;
     if (dir > 0) {
-      melodyPattern = absC >= 5.0 ? MOTIF_RISE_HIGH
-                    : absC >= 2.0 ? MOTIF_RISE_MED
+      melodyPattern = mag >= 3 ? MOTIF_RISE_HIGH
+                    : mag >= 2 ? MOTIF_RISE_MED
                     : MOTIF_RISE_LOW;
     } else {
-      melodyPattern = absC >= 5.0 ? MOTIF_FALL_HIGH
-                    : absC >= 2.0 ? MOTIF_FALL_MED
+      melodyPattern = mag >= 3 ? MOTIF_FALL_HIGH
+                    : mag >= 2 ? MOTIF_FALL_MED
                     : MOTIF_FALL_LOW;
     }
 
     // Cents saturation → gain. Mirrors Weather Vane shape: ramp from
-    // 0.10 at the gate (≈0.5¢) to ~0.22 at saturation (≥10¢).
-    const sat = Math.min(1.0, absC / 10.0);
+    // 0.10 at the gate to ~0.22 at saturation (≥10¢ raw move).
+    const sat = Math.min(1.0, Math.abs(dCents) / 10.0);
     const g = ((0.10 + sat * 0.12) * gainMul).toFixed(3);
 
     // Volatility → note dropout (uncertain markets = fragmented phrasing)
@@ -397,8 +399,8 @@ const diggingInTheMarkets = (() => {
       const vel   = q(data.velocity || 0, 0.1);
       const volat = q(data.volatility || 0, 0.1);
       const mom   = q(data.momentum || 0, 0.1);
-      const dCentsRaw = data.price_delta_cents || 0;
-      const dCents = q(dCentsRaw, 0.25);  // cache-stable, sign preserved
+      const dCents = data.price_delta_cents || 0;
+      const serverBand = data.price_delta_band ?? 0;  // -3..+3, server-decided
       const moving = data.price_moving === true;
 
       // ── 2. Derived values ──
@@ -408,12 +410,19 @@ const diggingInTheMarkets = (() => {
       const momSign = Math.abs(mom) < 0.15 ? 0 : (mom > 0 ? 1 : -1);
 
       // Melody gate: same two-signal rule as Weather Vane.
-      const melodyOn = moving && Math.abs(dCents) >= 0.5;
+      // serverBand is 0 inside the deadzone, so the band itself acts as
+      // the magnitude gate. Plus per-tick price_moving for "is the price
+      // ticking right now".
+      const melodyBand = moving ? serverBand : 0;
+      const melodyOn = melodyBand !== 0;
 
       // ── 3. Cache check ──
       const gainKey = Object.keys(this.voices)
         .map(v => this.getGain(v).toFixed(2)).join(':');
-      const melodyKey = melodyOn ? dCents.toFixed(2) : 'off';
+      // Quantize cents to 0.5¢ steps — keeps the gain-saturation curve
+      // stable across tiny variations without re-evaluating every tick.
+      const centsKey = Math.round(dCents * 2) / 2;
+      const melodyKey = melodyOn ? `${melodyBand}@${centsKey}` : 'off';
       const key = `${h}:${tone}:${intBand}:${volat}:${mom}:${melodyKey}:${gainKey}`;
       if (_cachedCode && _cachedKey === key) return _cachedCode;
 
@@ -455,11 +464,13 @@ const diggingInTheMarkets = (() => {
         ? hihatCode(intBand, energy, volat, this.getGain('hihat'))
         : '$: silence;\n';
 
-      // Melody — fires only when price is actually ticking. Direction +
-      // magnitude come from price_delta_cents; heat/momentum no longer
-      // gate it (the rest of the band conveys trading volume).
+      // Melody — fires only when price is actually ticking and the
+      // server-decided band is non-zero. Direction + magnitude come from
+      // price_delta_band; raw cents shapes the gain-saturation curve.
+      // Heat/momentum no longer gate it (the rest of the band conveys
+      // trading volume).
       code += melodyOn
-        ? melodyCode(tone, dCents, intBand, volat, this.getGain('melody'))
+        ? melodyCode(tone, melodyBand, dCents, intBand, volat, this.getGain('melody'))
         : '$: silence;\n';
 
       // ── 5. Cache and return ──
