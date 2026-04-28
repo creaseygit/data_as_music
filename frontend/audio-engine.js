@@ -36,7 +36,7 @@ const audioEngine = (() => {
   let _pendingData = null;       // market data waiting for next boundary
   let _pendingEvents = [];       // events waiting for next boundary
   let _boundaryTimer = null;     // setTimeout handle
-  let _playEpoch = 0;            // AudioContext time when playback started
+  let _strudel = null;           // initStrudel handle — exposes scheduler.now()
   let _forceNextPlay = false;    // force pattern rebuild at next boundary
   let _wakeLockRelease = null;   // Web Lock release callback (prevents background throttling)
   let _screenWakeLock = null;    // Screen Wake Lock sentinel (prevents system sleep)
@@ -48,7 +48,7 @@ const audioEngine = (() => {
     if (initialized) return;
     const CDN = 'https://strudel.b-cdn.net';
     const DM = `${CDN}/tidal-drum-machines/machines`;
-    await initStrudel({
+    _strudel = await initStrudel({
       prebake: async () => {
         await Promise.all([
           samples(`${CDN}/piano.json`, `${CDN}/piano/`, { prebake: true }),
@@ -183,11 +183,8 @@ const audioEngine = (() => {
       }
     } catch (e) { console.warn('[Audio] resume error:', e); }
 
-    // Record playback epoch for cycle-boundary calculations
+    // Reset any pending boundary work from a prior track
     _cancelBoundary();
-    try {
-      _playEpoch = getAudioContext().currentTime;
-    } catch (e) { _playEpoch = 0; }
 
     // Reset damping state — new track/market starts clean
     _targetData = {};
@@ -337,18 +334,34 @@ const audioEngine = (() => {
     }
   }
 
-  /** Approximate milliseconds until the next cycle boundary. */
+  /** Approximate milliseconds until just before the next cycle boundary.
+   *
+   * Reads Strudel's actual cycle position via `scheduler.now()` so
+   * re-evaluations align with the cycle Strudel is actually running —
+   * tracking our own epoch off `ctx.currentTime` is offset from Strudel's
+   * scheduler clock by an unpredictable constant, which causes patterns
+   * with notes packed at the start of a cycle (e.g. Weather Vane runs)
+   * to drop their leading notes when the band changes.
+   *
+   * Aims to land ~80 ms BEFORE the boundary so the new pattern is in place
+   * when Strudel's scheduler queries the upcoming cycle's haps in its
+   * lookahead window. Cap the lookahead at 5% of cycle length so very
+   * fast tracks don't lose half their cycle to anticipation.
+   */
   function _msUntilNextBoundary() {
     const cpm = currentTrackDef?.cpm;
     if (!cpm || cpm <= 0) return 0;  // no CPM → apply immediately
+    if (!_strudel?.scheduler?.started) return 0;
     try {
-      const ctx = getAudioContext();
-      if (!ctx || ctx.state !== 'running') return 0;
       const cps = cpm / 60;
-      const elapsed = ctx.currentTime - _playEpoch;
-      const phase = (elapsed * cps) % 1;  // 0-1 position within cycle
-      if (phase < 0.08) return 0;  // already near downbeat
-      return Math.max(0, ((1 - phase) / cps) * 1000);
+      const cycleNow = _strudel.scheduler.now();
+      const phase = cycleNow - Math.floor(cycleNow);
+      const cycleMs = 1000 / cps;
+      const lookaheadFrac = Math.min(0.05, 80 / cycleMs);
+      const targetPhase = 1 - lookaheadFrac;
+      // Already in (or past) the lookahead window — flush now.
+      if (phase >= targetPhase) return 0;
+      return ((targetPhase - phase) / cps) * 1000;
     } catch (e) {
       return 0;
     }
