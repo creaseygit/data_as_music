@@ -60,6 +60,14 @@ class ClientSession:
         # 8-min window.
         self._market_window_cap: int | None = None
 
+        # Logging breadcrumbs — track values we've already announced so
+        # the [SENS]/[BAND]/[HIST] logs only fire on change. None for
+        # _prev_logged_sens means "first broadcast for this session, do
+        # not fire a SENS-changed log yet".
+        self._prev_logged_sens: float | None = None
+        self._prev_logged_band: int = 0
+        self._history_milestone_logged: bool = False
+
     def reset_event_state(self):
         """Reset event baselines (e.g. after market switch)."""
         self._prev_heat = 0.0
@@ -74,6 +82,11 @@ class ClientSession:
         self._ema_slow = 0.5
         self._ticks_since_rotation = 0
         self._market_window_cap = None
+        # Reset per-market log state so [BAND] and [HIST] re-emit their
+        # first events for the new market. Sensitivity is per-session,
+        # not per-market — leave _prev_logged_sens alone.
+        self._prev_logged_band = 0
+        self._history_milestone_logged = False
 
 
 class SessionManager:

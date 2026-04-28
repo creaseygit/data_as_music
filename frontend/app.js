@@ -243,14 +243,22 @@ function _updateSensitivityUI(pct) {
 }
 
 let _sensSendDebounce;
+let _prevLoggedSens = null;
 function onSensitivityChange(pct) {
   pct = Math.max(0, Math.min(100, parseInt(pct, 10)));
   currentSensitivity = pct / 100;
   _updateSensitivityUI(pct);
   // Debounce while dragging so we don't flood the WS with tick-by-tick
-  // updates; the URL hash gets the same treatment.
+  // updates; the URL hash gets the same treatment. The console log fires
+  // once per settled slider value (not per drag tick) so you can see what
+  // you actually committed to the server.
   clearTimeout(_sensSendDebounce);
   _sensSendDebounce = setTimeout(() => {
+    if (_prevLoggedSens !== pct) {
+      const from = _prevLoggedSens === null ? '—' : `${_prevLoggedSens}%`;
+      console.log(`[SENS] ${from} → ${pct}% — server will re-emit bands at next tick`);
+      _prevLoggedSens = pct;
+    }
     wsClient.send({ action: 'sensitivity', value: currentSensitivity });
     updateHash();
   }, 50);

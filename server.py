@@ -381,6 +381,29 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
     sens_window_seconds = sens_window * DATA_PUSH_INTERVAL
     event_scale = _event_threshold_scale(half_life)
 
+    # [SENS] log: fires when the user moves the slider. Skips the very
+    # first broadcast for a session (no prior value to compare against).
+    # Sensitivity changes shift the lookback target, so reset the [HIST]
+    # milestone to re-fire if/when the new target becomes fully backed.
+    if (session._prev_logged_sens is not None
+            and session._prev_logged_sens != session.sensitivity):
+        old_s = session._prev_logged_sens
+        new_s = session.sensitivity
+        old_t = _band_thresholds(old_s)
+        new_t = _band_thresholds(new_s)
+        old_lb = _price_delta_lookback_ticks(old_s)
+        new_lb = _price_delta_lookback_ticks(new_s)
+        print(
+            f"[SENS:{session.client_id}] "
+            f"sens={old_s:.2f} → {new_s:.2f} | "
+            f"bands {old_t[0]:.2f}/{old_t[1]:.2f}/{old_t[2]:.2f}¢ → "
+            f"{new_t[0]:.2f}/{new_t[1]:.2f}/{new_t[2]:.2f}¢ | "
+            f"lookback {old_lb}→{new_lb} ticks ({old_lb*DATA_PUSH_INTERVAL:.0f}s→{new_lb*DATA_PUSH_INTERVAL:.0f}s)",
+            flush=True,
+        )
+        session._history_milestone_logged = False
+    session._prev_logged_sens = session.sensitivity
+
     # ── Rotation: reset per-session state when the market changes ──
     events = []
     is_rotation = (aid != session._prev_asset)
@@ -395,6 +418,30 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
         session._ema_fast = last_price
         session._ema_slow = last_price
         session._ticks_since_rotation = 0
+        # Reset per-market log state so [BAND] re-emits its first event
+        # for the new market and [HIST] can fire its milestone again.
+        session._prev_logged_band = 0
+        session._history_milestone_logged = False
+
+        # [PIN] log: one-shot summary of what we've got to work with on
+        # this market — backfill depth vs the lookback the user's current
+        # sensitivity is asking for. Tells you whether the rolling delta
+        # is fully backed yet or still warming up.
+        hist_for_log = scorer.price_history.get(aid)
+        hist_len_now = len(hist_for_log) if hist_for_log else 0
+        target_lb = _price_delta_lookback_ticks(session.sensitivity)
+        if session._market_window_cap is not None:
+            target_lb = min(target_lb, session._market_window_cap)
+        effective_lb = min(target_lb, max(0, hist_len_now - 1))
+        coverage = "fully backed" if effective_lb >= target_lb else "history-limited"
+        print(
+            f"[PIN:{session.client_id}] {session.market_slug or '?'} "
+            f"asset={aid[:8] if aid else '?'} sens={session.sensitivity:.2f} | "
+            f"history={hist_len_now}/{scorer.MID_HISTORY_MAXLEN} ticks "
+            f"({hist_len_now * DATA_PUSH_INTERVAL / 60:.1f}min) | "
+            f"lookback target={target_lb} effective={effective_lb} ({coverage})",
+            flush=True,
+        )
 
     # Increment tick counter (post-rotation reset starts at 0; first
     # post-rotation tick becomes 1).
@@ -554,16 +601,38 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
         session._prev_heat = heat
         session._prev_price = last_price
 
-    print(
-        f"[DATA:{session.client_id}] t={session._ticks_since_rotation} "
-        f"mid={smoothed_mid if smoothed_mid is None else round(smoothed_mid, 5)} "
-        f"hist_len={len(hist) if hist else 0} "
-        f"lookback={lookback}/{lookback_target} "
-        f"past_mid={past_mid if past_mid is None else round(past_mid, 5)} "
-        f"Δ¢={price_delta_cents:+.3f} band={price_delta_band:+d} moving={price_moving} "
-        f"sens={session.sensitivity:.2f} w={w:.2f}",
-        flush=True,
-    )
+    # [BAND] log: only fires when the band changes (and only after warmup
+    # — change-based signals are zeroed during the median-smoother flush
+    # so an early "0 → 0" transition isn't interesting).
+    if w >= 1.0 and price_delta_band != session._prev_logged_band:
+        if price_delta_band == 0:
+            decision = "silence (deadzone)" if price_moving else "silence (flat)"
+        else:
+            mag = abs(price_delta_band)
+            notes = {1: 3, 2: 5, 3: 8}[mag]
+            direction = "UP" if price_delta_band > 0 else "DOWN"
+            decision = f"{notes}-note {direction}"
+        print(
+            f"[BAND:{session.client_id}] "
+            f"{session._prev_logged_band:+d} → {price_delta_band:+d} ({decision}) | "
+            f"Δ¢={price_delta_cents:+.2f} sens={session.sensitivity:.2f}",
+            flush=True,
+        )
+        session._prev_logged_band = price_delta_band
+
+    # [HIST] log: one-shot per market when the history first satisfies the
+    # full lookback target. Tells you the moment the rolling delta becomes
+    # "real" (no longer clamped by warmup-era short history).
+    if (not session._history_milestone_logged
+            and lookback_target > 0
+            and lookback >= lookback_target):
+        print(
+            f"[HIST:{session.client_id}] lookback fully backed: "
+            f"{lookback}/{lookback_target} ticks "
+            f"({lookback * DATA_PUSH_INTERVAL:.0f}s @ sens={session.sensitivity:.2f})",
+            flush=True,
+        )
+        session._history_milestone_logged = True
 
     # Window metadata for client visualisation: target window for the
     # sensitivity-scaled signals, and how much of that window is actually
