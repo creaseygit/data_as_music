@@ -1,9 +1,11 @@
 // ── Late Night in Bb — Jazz Piano Trio ───────────────────
 // Two tonalities: bullish (Bb major) / bearish (G minor).
-// Tone selects major/minor quality; momentum drives ascending/descending contour.
+// Tone selects major/minor quality; momentum drives the bass walk
+// direction and chord cycling. Melody only fires when price is actually
+// ticking — its direction and magnitude come from price_delta_cents,
+// matching Weather Vane.
 // Heat controls layer density — a dead market converges to silence.
 // Trade rate + velocity drive rhythmic complexity (intBand).
-// Momentum magnitude drives melodic range (melodicBand).
 // Volatility → piano detuning, delay wash, bass darkness.
 // category: 'music', label: 'Late Night in Bb'
 
@@ -231,8 +233,12 @@ const jazzTrioTrack = (() => {
   // Jazz phrasing: quarter-note feel with @weights for held notes.
   // 8-bar phrases via <> cycling. Bars 1 & 8 = core motif anchor.
   // Bars 2-7 = variations. "Depart and return."
+  //
+  // 3 magnitude bands × 2 directions = 6 phrase sets. Bands match
+  // Weather Vane: 0.5–2¢ LOW, 2–5¢ MED, ≥5¢ HIGH. No "flat" set —
+  // melody is gated silent when price isn't moving.
 
-  // ── Rising phrases (momentum > 0) ──
+  // ── Rising phrases (price ticking up) ──
 
   // Low magnitude — sparse, held notes, jazz ballad feel
   const MOTIF_RISE_LOW = `<
@@ -270,7 +276,7 @@ const jazzTrioTrack = (() => {
     [0 1 2 4]
   >`;
 
-  // ── Falling phrases (momentum < 0) ──
+  // ── Falling phrases (price ticking down) ──
 
   // Low magnitude — sparse, tentative descent
   const MOTIF_FALL_LOW = `<
@@ -306,45 +312,6 @@ const jazzTrioTrack = (() => {
     [1 2 1 0]
     [0 2 3 ~]
     [4 2 1 0]
-  >`;
-
-  // ── Flat phrases (momentum ≈ 0) ──
-  // Fragments that never complete — indecisive, never leaps to degree 4
-
-  // Low magnitude — very sparse, jazz ballad meandering
-  const MOTIF_FLAT_LOW = `<
-    [0@2 1 2]
-    [~@3 ~]
-    [2@2 1 0]
-    [~@3 ~]
-    [1@2 2 1]
-    [~@3 ~]
-    [2 1 0 ~]
-    [0@2 1 2]
-  >`;
-
-  // Medium magnitude — more present but still oscillating
-  const MOTIF_FLAT_MED = `<
-    [0 1 2 1]
-    [2 3 2 1]
-    [1 2 1 0]
-    [2 1 2 3]
-    [0 1 2 1]
-    [3 2 1 2]
-    [1 0 1 2]
-    [2 1 0 ~]
-  >`;
-
-  // High magnitude — busy but going nowhere
-  const MOTIF_FLAT_HIGH = `<
-    [0 1 2 3]
-    [2 1 0 1]
-    [2 3 2 1]
-    [3 2 1 0]
-    [1 2 3 2]
-    [3 2 1 0]
-    [1 2 3 2]
-    [2 1 0 ~]
   >`;
 
   // ════════════════════════════════════════════════════════════
@@ -434,33 +401,37 @@ $: note(\`${bassNotes}\`)
   // Melody — motif-based piano melody via .scale()
   // Always Bb pentatonic — direction (ascending/descending) conveys market
   // mood, not mode changes. Comp/bass handle harmonic shifts underneath.
-  function melodyCode(tone, momSign, momMagQ, melodyStrength, energy, volatility, intBand, gainMul) {
+  // Direction + magnitude come from price_delta_cents (matches Weather
+  // Vane bands). intBand only adds octave embellishment.
+  function melodyCode(tone, dCents, intBand, volatility, gainMul) {
     const scale = "Bb4:pentatonic";
+    const absC = Math.abs(dCents);
+    const dir = dCents > 0 ? 1 : -1;
 
-    // Select phrase set: direction × magnitude
+    // Direction × magnitude band selects the phrase set.
     let melodyPattern;
-    if (momSign > 0) {
-      melodyPattern = momMagQ >= 0.55 ? MOTIF_RISE_HIGH
-                    : momMagQ >= 0.25 ? MOTIF_RISE_MED
+    if (dir > 0) {
+      melodyPattern = absC >= 5.0 ? MOTIF_RISE_HIGH
+                    : absC >= 2.0 ? MOTIF_RISE_MED
                     : MOTIF_RISE_LOW;
-    } else if (momSign < 0) {
-      melodyPattern = momMagQ >= 0.55 ? MOTIF_FALL_HIGH
-                    : momMagQ >= 0.25 ? MOTIF_FALL_MED
-                    : MOTIF_FALL_LOW;
     } else {
-      melodyPattern = momMagQ >= 0.55 ? MOTIF_FLAT_HIGH
-                    : momMagQ >= 0.25 ? MOTIF_FLAT_MED
-                    : MOTIF_FLAT_LOW;
+      melodyPattern = absC >= 5.0 ? MOTIF_FALL_HIGH
+                    : absC >= 2.0 ? MOTIF_FALL_MED
+                    : MOTIF_FALL_LOW;
     }
 
-    const vel = (0.30 + melodyStrength * 0.30).toFixed(3);
-    const velMax = (0.40 + melodyStrength * 0.20).toFixed(3);
+    // Cents saturation drives velocity range and overall gain — same
+    // shape as Weather Vane: ramp from gate (≈0.5¢) up to 10¢ saturation.
+    const sat = Math.min(1.0, absC / 10.0);
+    const vel = (0.30 + sat * 0.30).toFixed(3);
+    const velMax = (0.40 + sat * 0.20).toFixed(3);
     const delayFb = (0.15 + volatility * 0.25).toFixed(2);
+    const g = ((0.30 + sat * 0.30) * gainMul).toFixed(3);
 
     // Intensity embellishment: high intBand adds occasional octave reinforcement
     // Pentatonic octave = 5 degrees
     const embellish = intBand >= 2
-      ? (momSign < 0
+      ? (dir < 0
           ? `.rarely(x => x.add(note(-5)))`
           : `.rarely(x => x.add(note(5)))`)
       : '';
@@ -469,7 +440,7 @@ $: note(\`${bassNotes}\`)
 $: note(\`${melodyPattern}\`).scale("${scale}")
   .s("piano")
   .velocity(rand.range(${vel}, ${velMax}))${embellish}
-  .gain(${(energy * gainMul).toFixed(3)})
+  .gain(${g})
   .room(0.25)
   .roomsize(3)
   .delay(0.08)
@@ -590,7 +561,7 @@ $: s("<~ ~ ~ ~ ~ ~ ~ [~ ~ [sd ~] [~ ~ sd]]>").gain(${(0.22 * energy * gainMul).t
     voices: {
       comp:       { label: "Comping",     default: 1.0 },
       bass:       { label: "Bass",        default: 1.0 },
-      melody:     { label: "Melody",      default: 1.0 },
+      melody:     { label: "Melody",      default: 1.0, meter: 'delta' },
       ride:       { label: "Ride",        default: 1.0 },
       hihat:      { label: "Hi-hat",      default: 1.0 },
       ghostSnare: { label: "Ghost Snare", default: 1.0 },
@@ -616,38 +587,40 @@ $: s("<~ ~ ~ ~ ~ ~ ~ [~ ~ [sd ~] [~ ~ sd]]>").gain(${(0.22 * energy * gainMul).t
       const tradeRate = data.trade_rate || 0;
       const vel = data.velocity || 0;
       const momentum = data.momentum || 0;
-      const momMag = Math.abs(momentum);
       const volatility = data.volatility || 0;
-      const pm = data.price_move || 0;
-      const pmAbs = Math.abs(pm);
+      const dCentsRaw = data.price_delta_cents || 0;
+      const moving = data.price_moving === true;
 
       // Quantize for cache stability
       const hQ = q(h, 0.05);
       const volQ = q(volatility, 0.1);
       const momQ = q(momentum, 0.1);
       const momMagQ = Math.abs(momQ);
+      const dCents = q(dCentsRaw, 0.25);  // sign preserved
 
-      // Direction from momentum sign
+      // Direction from momentum sign — drives bass walk + chord cycling.
+      // Bass intentionally leans on the longer-term trend; melody uses
+      // the per-tick cents delta below.
       const momDir = momMagQ < 0.1 ? 'flat' : (momQ > 0 ? 'up' : 'down');
 
       // Intensity band from trading activity (drives rhythmic complexity)
       const rawIntensity = 0.6 * tradeRate + 0.4 * vel;
       const intBand = rawIntensity < 0.33 ? 0 : rawIntensity < 0.66 ? 1 : 2;
 
-      // Momentum band (drives melodic range — bigger move = wider intervals)
+      // Momentum band (drives bass melodic range — bigger trend = wider walk)
       const momBand = momMagQ < 0.25 ? 0 : momMagQ < 0.55 ? 1 : 2;
 
-      // Melodic band: max of rhythm and momentum
+      // Bass melodic band: max of rhythm and momentum
       // Strong trends get wide intervals even with moderate trading
       const melodicBand = Math.max(intBand, momBand);
 
-      // Melody strength: whichever is stronger — edge-detected move or sustained momentum
-      const melodyStrength = Math.max(pmAbs, momMag * 0.7);
-      const msQ = q(melodyStrength, 0.1);
+      // Melody gate: same two-signal rule as Weather Vane.
+      const melodyOn = moving && Math.abs(dCents) >= 0.5;
 
       const gainKey = Object.keys(this.voices)
         .map(v => this.getGain(v).toFixed(2)).join(':');
-      const key = `${tone}:${intBand}:${melodicBand}:${hQ}:${momDir}:${msQ}:${volQ}:${gainKey}`;
+      const melodyKey = melodyOn ? dCents.toFixed(2) : 'off';
+      const key = `${tone}:${intBand}:${melodicBand}:${hQ}:${momDir}:${melodyKey}:${volQ}:${gainKey}`;
 
       if (_cachedCode && _cachedKey === key) return _cachedCode;
 
@@ -660,9 +633,6 @@ $: s("<~ ~ ~ ~ ~ ~ ~ [~ ~ [sd ~] [~ ~ sd]]>").gain(${(0.22 * energy * gainMul).t
         ? (momDir === 'up' ? BB_BASS_UP : momDir === 'down' ? BB_BASS_DOWN : BB_BASS_FLAT)
         : (momDir === 'up' ? GM_BASS_UP : momDir === 'down' ? GM_BASS_DOWN : GM_BASS_FLAT);
       const bassNotes = bassPatterns[melodicBand];
-
-      // Momentum direction for melody motif
-      const momSign = momMagQ < 0.1 ? 0 : (momQ > 0 ? 1 : -1);
 
       // ── Build code ──
       let code = "setcpm(30);\n";
@@ -688,9 +658,11 @@ $: s("<~ ~ ~ ~ ~ ~ ~ [~ ~ [sd ~] [~ ~ sd]]>").gain(${(0.22 * energy * gainMul).t
         ? hihatCode(intBand, energy, this.getGain('hihat'))
         : '\n$: silence;\n';
 
-      // 6. Melody — during trends or active movement (heat > 0.20 AND melodyStrength > 0.05)
-      code += (hQ > 0.20 && melodyStrength > 0.05)
-        ? melodyCode(tone, momSign, momMagQ, melodyStrength, energy, volQ, intBand, this.getGain('melody'))
+      // 6. Melody — fires only when price is actually ticking. Direction
+      // and magnitude come from price_delta_cents; heat/momentum no longer
+      // gate it (the rest of the band conveys trading activity).
+      code += melodyOn
+        ? melodyCode(tone, dCents, intBand, volQ, this.getGain('melody'))
         : '\n$: silence;\n';
 
       // 7. Ghost snare (intBand >= 1 AND heat > 0.40)

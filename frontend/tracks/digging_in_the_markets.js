@@ -2,17 +2,19 @@
 // Dusty, mellow lo-fi hip hop beats. Swung drums, data-driven Rhodes
 // comping, warm sine bass, sparse pentatonic melodies, vinyl texture.
 // Flat keys (Bb major / G minor) for that warm lo-fi register.
-// Heat controls layer density; momentum drives melodic contour.
+// Heat controls layer density; melody only fires when price ticks.
 // category: 'music', label: 'Digging in the Markets'
 //
 // ── DATA SIGNALS ──
-// heat        0.0–1.0   Overall market activity — controls layer density
-// price       0.0–1.0   Current price — drives filter warmth
-// momentum   -1.0–1.0   Sustained trend direction — drives melodic contour
-// velocity    0.0–1.0   Price velocity magnitude — part of intensity band
-// trade_rate  0.0–1.0   Trades per minute — part of intensity band
-// volatility  0.0–1.0   Price oscillation — drives reverb, detuning, wobble
-// tone        0 or 1    1=major/bullish (Bb major), 0=minor/bearish (G minor)
+// heat            0.0–1.0   Overall market activity — controls layer density
+// price           0.0–1.0   Current price — drives filter warmth
+// price_moving    bool      Per-tick "did price move" gate for the melody
+// price_delta_cents signed¢ Cents move over the lookback — picks melody direction + magnitude
+// momentum       -1.0–1.0   Sustained trend direction — Rhodes voicings, bass walk direction
+// velocity        0.0–1.0   Price velocity magnitude — part of intensity band
+// trade_rate      0.0–1.0   Trades per minute — part of intensity band
+// volatility      0.0–1.0   Price oscillation — drives reverb, detuning, wobble
+// tone            0 or 1    1=major/bullish (Bb major), 0=minor/bearish (G minor)
 
 const diggingInTheMarkets = (() => {
   let _cachedCode = null;
@@ -187,11 +189,13 @@ const diggingInTheMarkets = (() => {
   // Bars 2-7 = variations (neighbour, sequence, extension, truncation,
   // enclosure, retrograde answer). "Depart and return."
   //
-  // 3 magnitude levels × 3 directions = 9 phrase sets.
+  // 3 magnitude bands × 2 directions = 6 phrase sets.
+  // Magnitude bands match Weather Vane: 0.5–2¢ LOW, 2–5¢ MED, ≥5¢ HIGH.
+  // No "flat" set — melody is gated silent when price isn't moving.
   // Intensity (intBand) handled by degradeBy + embellishment, not
   // separate patterns — keeps the motif identity consistent.
 
-  // ── Rising phrases (momentum > 0) ──
+  // ── Rising phrases (price ticking up) ──
   // Seed: [0,1,2,4] sequenced upward
 
   // Low magnitude — sparse, tentative. Motif hinted, completes only at bar 8
@@ -230,7 +234,7 @@ const diggingInTheMarkets = (() => {
     [[0 1 2 4] [4 5 6 4] [~ ~ ~ ~] [~ ~ ~ ~]]
   >`;
 
-  // ── Falling phrases (momentum < 0) ──
+  // ── Falling phrases (price ticking down) ──
   // Seed inverted: [4,2,1,0] sequenced downward
 
   // Low magnitude — sparse, tentative descent
@@ -269,66 +273,31 @@ const diggingInTheMarkets = (() => {
     [[4 2 1 0] [0 1 0 ~] [~ ~ ~ ~] [~ ~ ~ ~]]
   >`;
 
-  // ── Flat phrases (momentum ≈ 0) ──
-  // Motif fragments that never complete — indecisive, oscillating
-  // Never leaps to degree 4: the listener waits for resolution that doesn't come
-
-  // Low magnitude — very sparse, gentle rocking
-  const MOTIF_FLAT_LOW = `<
-    [[0 1 2 ~] [~ ~ ~ ~] [~ ~ ~ ~] [~ ~ ~ ~]]
-    [[~ ~ ~ ~] [~ ~ ~ ~] [~ ~ ~ ~] [~ ~ ~ ~]]
-    [[2 1 0 ~] [~ ~ ~ ~] [~ ~ ~ ~] [~ ~ ~ ~]]
-    [[~ ~ ~ ~] [~ ~ ~ ~] [~ ~ ~ ~] [~ ~ ~ ~]]
-    [[1 2 1 ~] [~ ~ ~ ~] [~ ~ ~ ~] [~ ~ ~ ~]]
-    [[~ ~ ~ ~] [~ ~ ~ ~] [~ ~ ~ ~] [~ ~ ~ ~]]
-    [[2 1 0 ~] [~ ~ ~ ~] [~ ~ ~ ~] [~ ~ ~ ~]]
-    [[0 1 2 ~] [~ ~ ~ ~] [~ ~ ~ ~] [~ ~ ~ ~]]
-  >`;
-
-  // Medium magnitude — more present but still oscillating
-  const MOTIF_FLAT_MED = `<
-    [[0 1 2 1] [2 1 ~ ~] [~ ~ ~ ~] [~ ~ ~ ~]]
-    [[2 3 2 1] [0 1 ~ ~] [~ ~ ~ ~] [~ ~ ~ ~]]
-    [[1 2 1 0] [1 2 ~ ~] [~ ~ ~ ~] [~ ~ ~ ~]]
-    [[2 1 2 3] [2 1 ~ ~] [~ ~ ~ ~] [~ ~ ~ ~]]
-    [[0 1 2 1] [0 1 ~ ~] [~ ~ ~ ~] [~ ~ ~ ~]]
-    [[3 2 1 2] [1 0 ~ ~] [~ ~ ~ ~] [~ ~ ~ ~]]
-    [[1 0 1 2] [1 0 ~ ~] [~ ~ ~ ~] [~ ~ ~ ~]]
-    [[2 1 0 ~] [0 1 ~ ~] [~ ~ ~ ~] [~ ~ ~ ~]]
-  >`;
-
-  // High magnitude — busy but going nowhere
-  const MOTIF_FLAT_HIGH = `<
-    [[0 1 2 3] [2 1 0 1] [~ ~ ~ ~] [~ ~ ~ ~]]
-    [[2 1 0 1] [2 3 2 1] [~ ~ ~ ~] [~ ~ ~ ~]]
-    [[2 3 2 1] [0 1 2 3] [~ ~ ~ ~] [~ ~ ~ ~]]
-    [[3 2 1 0] [1 2 3 2] [~ ~ ~ ~] [~ ~ ~ ~]]
-    [[1 2 3 2] [1 0 1 2] [~ ~ ~ ~] [~ ~ ~ ~]]
-    [[3 2 1 0] [1 2 1 0] [~ ~ ~ ~] [~ ~ ~ ~]]
-    [[1 2 3 2] [3 2 1 0] [~ ~ ~ ~] [~ ~ ~ ~]]
-    [[2 1 0 ~] [1 2 1 ~] [~ ~ ~ ~] [~ ~ ~ ~]]
-  >`;
-
   // ── Melody: motif-based phrases with delay ──
-  function melodyCode(tone, momSign, momAbs, intBand, energy, volat, gainMul) {
-    const g = (0.18 * energy * gainMul).toFixed(3);
+  // Direction from sign(price_delta_cents); magnitude band from |cents|
+  // (matches Weather Vane bands). Intensity (intBand) only adds octave
+  // embellishment — it doesn't pick the phrase set.
+  function melodyCode(tone, dCents, intBand, volat, gainMul) {
+    const absC = Math.abs(dCents);
     const scale = "Bb4:pentatonic"; // always — direction conveys mood, not mode
 
-    // Select phrase set: direction × magnitude
+    // Direction × magnitude band selects the phrase set.
+    const dir = dCents > 0 ? 1 : -1;
     let melodyPattern;
-    if (momSign > 0) {
-      melodyPattern = momAbs >= 0.65 ? MOTIF_RISE_HIGH
-                    : momAbs >= 0.35 ? MOTIF_RISE_MED
+    if (dir > 0) {
+      melodyPattern = absC >= 5.0 ? MOTIF_RISE_HIGH
+                    : absC >= 2.0 ? MOTIF_RISE_MED
                     : MOTIF_RISE_LOW;
-    } else if (momSign < 0) {
-      melodyPattern = momAbs >= 0.65 ? MOTIF_FALL_HIGH
-                    : momAbs >= 0.35 ? MOTIF_FALL_MED
-                    : MOTIF_FALL_LOW;
     } else {
-      melodyPattern = momAbs >= 0.65 ? MOTIF_FLAT_HIGH
-                    : momAbs >= 0.35 ? MOTIF_FLAT_MED
-                    : MOTIF_FLAT_LOW;
+      melodyPattern = absC >= 5.0 ? MOTIF_FALL_HIGH
+                    : absC >= 2.0 ? MOTIF_FALL_MED
+                    : MOTIF_FALL_LOW;
     }
+
+    // Cents saturation → gain. Mirrors Weather Vane shape: ramp from
+    // 0.10 at the gate (≈0.5¢) to ~0.22 at saturation (≥10¢).
+    const sat = Math.min(1.0, absC / 10.0);
+    const g = ((0.10 + sat * 0.12) * gainMul).toFixed(3);
 
     // Volatility → note dropout (uncertain markets = fragmented phrasing)
     const degradeAmt = (0.10 + volat * 0.25).toFixed(2);
@@ -336,7 +305,7 @@ const diggingInTheMarkets = (() => {
 
     // Intensity embellishment: high intBand adds occasional octave reinforcement
     const embellish = intBand >= 2
-      ? (momSign < 0
+      ? (dir < 0
           ? `.rarely(x => x.add(note(-5)))`
           : `.rarely(x => x.add(note(5)))`)
       : '';
@@ -404,7 +373,7 @@ const diggingInTheMarkets = (() => {
       hihat:   { label: "Hi-Hat",  default: 1.0 },
       keys:    { label: "Keys",    default: 1.0 },
       bass:    { label: "Bass",    default: 1.0 },
-      melody:  { label: "Melody",  default: 1.0 },
+      melody:  { label: "Melody",  default: 1.0, meter: 'delta' },
       texture: { label: "Texture", default: 1.0 },
       pad:     { label: "Pad",     default: 1.0 },
     },
@@ -428,6 +397,9 @@ const diggingInTheMarkets = (() => {
       const vel   = q(data.velocity || 0, 0.1);
       const volat = q(data.volatility || 0, 0.1);
       const mom   = q(data.momentum || 0, 0.1);
+      const dCentsRaw = data.price_delta_cents || 0;
+      const dCents = q(dCentsRaw, 0.25);  // cache-stable, sign preserved
+      const moving = data.price_moving === true;
 
       // ── 2. Derived values ──
       const rawIntensity = 0.6 * tr + 0.4 * vel;
@@ -435,10 +407,14 @@ const diggingInTheMarkets = (() => {
       const energy = h;  // raw heat — silence is valid at 0
       const momSign = Math.abs(mom) < 0.15 ? 0 : (mom > 0 ? 1 : -1);
 
+      // Melody gate: same two-signal rule as Weather Vane.
+      const melodyOn = moving && Math.abs(dCents) >= 0.5;
+
       // ── 3. Cache check ──
       const gainKey = Object.keys(this.voices)
         .map(v => this.getGain(v).toFixed(2)).join(':');
-      const key = `${h}:${tone}:${intBand}:${volat}:${mom}:${gainKey}`;
+      const melodyKey = melodyOn ? dCents.toFixed(2) : 'off';
+      const key = `${h}:${tone}:${intBand}:${volat}:${mom}:${melodyKey}:${gainKey}`;
       if (_cachedCode && _cachedKey === key) return _cachedCode;
 
       // ── 4. Build code ──
@@ -479,9 +455,11 @@ const diggingInTheMarkets = (() => {
         ? hihatCode(intBand, energy, volat, this.getGain('hihat'))
         : '$: silence;\n';
 
-      // Melody — sparse pentatonic, needs momentum or high heat
-      code += (Math.abs(mom) > 0.2 || h > 0.45)
-        ? melodyCode(tone, momSign, Math.abs(mom), intBand, energy, volat, this.getGain('melody'))
+      // Melody — fires only when price is actually ticking. Direction +
+      // magnitude come from price_delta_cents; heat/momentum no longer
+      // gate it (the rest of the band conveys trading volume).
+      code += melodyOn
+        ? melodyCode(tone, dCents, intBand, volat, this.getGain('melody'))
         : '$: silence;\n';
 
       // ── 5. Cache and return ──

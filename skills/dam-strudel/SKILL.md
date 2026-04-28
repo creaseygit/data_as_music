@@ -198,7 +198,7 @@ if (h < 0.15) {
 
 Design every track so that **consecutive low-activity rebuilds converge toward silence**, not toward a quiet-but-busy loop. The listener is waiting for news — don't exhaust their attention with sound that carries no information.
 
-**Pick the right "is it quiet?" signal.** Prefer `heat` (overall activity) and `price_move` (edge-detected price movement) for silence gates. Both reliably reach zero when the market is idle. Do NOT gate silence on `momentum` — it's a lagged EMA divergence that hovers above zero on any real book (see "Pitfall: `price_move` vs `momentum`" in Data Signals).
+**Pick the right "is it quiet?" signal.** For overall layer density use `heat` (composite market activity — silent on idle markets). For per-cycle melody/phrase gating use **`price_moving`** — a per-tick boolean that is true iff the smoothed mid actually changed this 3s window. Pair it with `price_delta_cents` for size + direction. Do NOT gate silence on `momentum` (lagged EMA divergence — hovers above zero on any jittery book) or on the legacy `price_move` integrator (sustains for the lookback after a move ends). See "Pitfall: gating silence" in Data Signals.
 
 ### 2. Melodies Must Not Be Repetitive
 
@@ -419,28 +419,53 @@ Every 3 seconds, `evaluateCode(data)` receives:
 |--------|-------|-------------|---------------|
 | `heat` | 0–1 | **Energy** | Volume, layer count, rhythmic density, arrangement fullness |
 | `price` | 0–1 | **Harmonic position** | Register, note choice. 0.5 = max tension. 0.9+ = resolution. <0.2 = doom |
-| `price_move` | -1–1 | **Phrase trigger / "is price moving NOW?"** | Melodic runs, arpeggios, fills, alert gates. Edge-detected: fires on active 30s movement or drift (1.5¢+), and is **exactly zero when the price is flat**. Momentary gestures. |
-| `momentum` | -1–1 | **Section mood / sustained trend direction** | Build energy on uptrend, pull back on downtrend. Dual-EMA (MACD-style) divergence — lags price, decays slowly after a move, and **hovers above zero whenever the fast/slow EMAs aren't perfectly aligned** (i.e. almost always on a jittery book). Do NOT use as a "silent when flat" gate — use `price_move` for that. |
+| `price_moving` | bool | **Per-tick "is price ticking NOW?" gate** | Hard on/off for melody/phrase voices. True iff smoothed mid changed ≥0.05¢ this 3s window. False on flat markets and during warmup. **Pair with `price_delta_cents` for direction + magnitude.** |
+| `price_delta_cents` | ±cents | **Magnitude + direction of recent move** | Rolling signed cents over the sensitivity-scaled lookback. Picks scale length / phrase intensity / which sample fires. **Do not use as a silence gate** — sustains for the lookback after a move ends. |
+| `price_move` | -1–1 | **Legacy unitless integrator** | Same direction as `price_delta_cents` but unitless and decaying. Older tracks read this; new tracks should prefer `price_delta_cents` for size and `price_moving` for the gate. |
+| `momentum` | -1–1 | **Section mood / sustained trend direction** | Build energy on uptrend, pull back on downtrend. Dual-EMA (MACD-style) divergence — lags price, decays slowly after a move, and **hovers above zero whenever the fast/slow EMAs aren't perfectly aligned** (i.e. almost always on a jittery book). Use it for sustained mood (bass walk direction, chord cycling, register), **not** as a silence gate. |
 | `velocity` | 0–1 | **Pace** | Subdivision, tempo feel, rhythmic urgency. 5-min window, absolute: 10¢ move = 1.0 |
 | `volatility` | 0–1 | **Tension/uncertainty** | Dissonance, detuning, filter wobble, tremolo, irregular rhythms |
 | `trade_rate` | 0–1 | **Complexity** | Drum density, voice count, melodic ornamentation |
 | `spread` | 0–1 | **Liquidity feel** | Wide intervals vs tight clusters, consonance vs dissonance |
 | `tone` | 0 or 1 | **Key/mode** | 1 = bullish/major. 0 = bearish/minor. Has hysteresis — won't flicker. |
 
-### Pitfall: `price_move` vs `momentum` — choosing the right gate
+### Pitfall: gating silence — pick the right "is price moving" signal
 
-These both carry signed direction and can tempt you to use either, but they mean different things:
+Three signals all carry "did the price do something" information, and they're easy to confuse. They mean very different things:
 
-- **`price_move` is "is price moving RIGHT NOW?"** — edge-detected and *truly zero* when the price is flat. Use it for:
-  - Alert tracks that should fall silent between moves
-  - Phrase triggers (runs, fills, one-shots)
-  - Any "show me direction only when direction exists" gate
-- **`momentum` is "what's the sustained trend direction?"** — a dual-EMA divergence. The fast and slow EMAs only converge after several time-constants of perfect stability, so on a real order book (with constant bid/ask jitter) `momentum` almost never hits zero — it hovers at small non-zero values indefinitely. Plus the normalization is `raw / 0.05`, so a 0.25¢ EMA gap already reads as 0.05. Use it for:
-  - Sustained mood: energy ramps, register shifts, arrangement density during trends
-  - Melodic contour direction in music tracks (skill §3)
-  - Anything that should stay "on" through a trend even while the price ticks are small
+- **`price_moving` is "did the price tick THIS cycle?"** — a per-tick boolean. True iff smoothed mid changed ≥0.05¢ since the previous 3s broadcast. **This is the canonical melody/phrase gate.** False kills the voice the moment movement stops.
+- **`price_delta_cents` is "how many cents has the price moved over the lookback?"** — signed, in real cents, sensitivity-scaled. Carries magnitude (band picker) and direction (sign). **Sustains for the lookback after a move ends**, so it is not a silence gate on its own — pair it with `price_moving`.
+- **`price_move` is the legacy unitless integrator** — same direction as `price_delta_cents` but no real-world unit and decaying. Older tracks read this; new tracks should prefer the cents pair.
+- **`momentum` is "what's the sustained trend direction?"** — a dual-EMA divergence. The fast and slow EMAs only converge after several time-constants of perfect stability, so on a real order book (with constant bid/ask jitter) `momentum` almost never hits zero — it hovers at small non-zero values indefinitely. Use it for sustained mood (energy ramps, bass walk direction, chord cycling), not as a "silent when flat" gate.
 
-**If you gate silence on `|momentum| < threshold`, the track will play almost constantly.** This was the bug in Weather Vane v1 — the fix was to gate on `price_move` instead. Sensitivity still applies to `price_move` server-side (power curve after edge detection), so using `price_move` does not cost you sensitivity-slider integration.
+**The canonical "melody from price" recipe** (used by Weather Vane, Late Night in Bb, Digging in the Markets, So Over So Back):
+
+```js
+const moving = data.price_moving === true;
+const dCents = data.price_delta_cents || 0;
+const melodyOn = moving && Math.abs(dCents) >= 0.5;
+
+// Magnitude band — matches the Now-Playing delta gauge cells
+function magBand(absCents) {
+  if (absCents < 0.5) return -1;  // silence
+  if (absCents < 2.0) return 0;   // "small" — short phrase
+  if (absCents < 5.0) return 1;   // "medium"
+  return 2;                        // "large" — full phrase
+}
+
+// Direction
+const dir = dCents > 0 ? 1 : -1;
+```
+
+Then declare the voice with `meter: 'delta'` so the Now-Playing gauge matches what your track actually does:
+
+```js
+voices: {
+  melody: { label: "Melody", default: 1.0, meter: 'delta' },
+}
+```
+
+**If you gate silence on `|momentum| < threshold`, the track will play almost constantly.** This was the original Weather Vane bug. Sensitivity still applies to `price_delta_cents` server-side (it scales the lookback window), so using the cents pair does not cost you sensitivity-slider integration.
 
 ### The Four Market Moods
 

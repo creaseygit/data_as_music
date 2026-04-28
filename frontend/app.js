@@ -436,7 +436,9 @@ let _tracksLoaded = false;
 function loadTrackScripts(tracks, { reload = false } = {}) {
   if (_tracksLoaded && !reload) return Promise.resolve();
   _tracksLoaded = true;
-  const bust = reload ? `?v=${Date.now()}` : '';
+  // Always cache-bust: track files are hand-edited frequently and the
+  // payload is tiny, so paying for a fresh fetch beats serving stale JS.
+  const bust = `?v=${Date.now()}`;
   return Promise.all(tracks.map(t => {
     if (reload) {
       // On reload, fetch script text and eval it — avoids const re-declaration
