@@ -5,7 +5,8 @@ from collections import defaultdict, deque
 from config import (
     WEIGHT_PRICE_VELOCITY, WEIGHT_TRADE_RATE,
     WEIGHT_VOLUME, WEIGHT_SPREAD, MIN_TRADE_RATE,
-    VELOCITY_MAX_MOVE
+    VELOCITY_MAX_MOVE,
+    SIGMA_WINDOW, SIGMA_MIN_SAMPLES, SIGMA_FLOOR_CENTS,
 )
 
 
@@ -33,9 +34,8 @@ class MarketScorer:
     MID_SMOOTH_WINDOW = 3
 
     # Depth of the per-market mid price history (in samples). At 3s cadence,
-    # 1300 samples ≈ 65 min — covers the 1hr lookback at the lowest
-    # sensitivity (PRICE_DELTA_TICKS_MAX=1200) with a small safety margin.
-    # Memory cost is trivial: a few thousand floats per watched market.
+    # 1300 samples ≈ 65 min — covers backfill + enough live history for
+    # window-family signals (velocity, volatility, momentum).
     MID_HISTORY_MAXLEN = 1300
 
     def __init__(self):
@@ -55,6 +55,12 @@ class MarketScorer:
 
         # Recent spread values, sampled at the same cadence as price_history.
         self._spread_history = defaultdict(lambda: deque(maxlen=self.SPREAD_SMOOTH_WINDOW))
+
+        # Per-tick noise estimation: rolling window of tick-to-tick smoothed
+        # mid deltas (cents). Only populated by sample_mid() — live ticks
+        # only, no backfill contamination. σ = stdev of this deque.
+        self._tick_deltas = defaultdict(lambda: deque(maxlen=SIGMA_WINDOW))
+        self._prev_sample_mid = {}  # market_id → last mid from sample_mid()
 
         # Trade events: market_id → deque of timestamps (for rate).
         self.trade_times    = defaultdict(lambda: deque(maxlen=500))
@@ -111,6 +117,12 @@ class MarketScorer:
 
         self.price_history[market_id].append((time.time(), smoothed_mid))
         self._spread_history[market_id].append(raw_spread)
+
+        prev = self._prev_sample_mid.get(market_id)
+        if prev is not None:
+            self._tick_deltas[market_id].append((smoothed_mid - prev) * 100.0)
+        self._prev_sample_mid[market_id] = smoothed_mid
+
         return smoothed_mid
 
     # ── Read helpers ──────────────────────────────────────
@@ -141,6 +153,19 @@ class MarketScorer:
         if not hist:
             return 0.2
         return sum(hist) / len(hist)
+
+    def get_tick_sigma(self, market_id: str) -> float | None:
+        """Per-tick noise σ in cents (stddev of recent tick-to-tick mid deltas).
+
+        Returns None if fewer than SIGMA_MIN_SAMPLES live ticks have been
+        recorded — the caller should treat this as "not enough data to judge
+        significance" and keep the band at 0 (silence).
+        """
+        deltas = self._tick_deltas.get(market_id)
+        if not deltas or len(deltas) < SIGMA_MIN_SAMPLES:
+            return None
+        sigma = statistics.stdev(deltas)
+        return max(sigma, SIGMA_FLOOR_CENTS)
 
     # ── Scoring ───────────────────────────────────────────
 

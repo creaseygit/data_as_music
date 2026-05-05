@@ -11,6 +11,7 @@ entirely in the browser via Strudel.
 import asyncio
 import hashlib
 import json
+import math
 import re
 import sys
 from datetime import datetime, timedelta, timezone
@@ -34,8 +35,9 @@ from config import (
     WS_PING_INTERVAL, MAX_CLIENTS, DATA_PUSH_INTERVAL,
     VELOCITY_MAX_MOVE, WARMUP_TICKS,
     PRICE_MOVE_HL_MIN, PRICE_MOVE_HL_MAX, PRICE_MOVE_GAIN,
-    PRICE_DELTA_TICKS_MIN, PRICE_DELTA_TICKS_MAX,
-    PRICE_DELTA_BAND_LOW, PRICE_DELTA_BAND_MED, PRICE_DELTA_BAND_HIGH,
+    DELTA_LOOKBACK_TICKS,
+    BAND_Z_LOW, BAND_Z_MED, BAND_Z_HIGH,
+    SIGMA_FLOOR_CENTS,
 )
 
 
@@ -223,52 +225,49 @@ def _warmup_factor(session: ClientSession) -> float:
     return x * x * (3.0 - 2.0 * x)
 
 
-def _price_delta_lookback_ticks(sensitivity: float) -> int:
-    """Lookback window in ticks for the price_delta_cents signal.
+def _band_z_scale(sensitivity: float) -> float:
+    """Multiplier for the adaptive band z-thresholds.
 
-    Log-uniform mapping from sensitivity to tick count:
-      s=1.0 → PRICE_DELTA_TICKS_MIN  (5 ticks ≈ 15s, scalper)
-      s=0.5 → geometric mean         (~77 ticks ≈ 4min, default)
-      s=0.0 → PRICE_DELTA_TICKS_MAX  (1200 ticks ≈ 1hr, news)
+    3^(1-2*sens): ×0.33 at max sensitivity (reactive), ×1 at default,
+    ×3 at min sensitivity (conservative — only outlier moves register).
     """
-    ratio = PRICE_DELTA_TICKS_MAX / PRICE_DELTA_TICKS_MIN
-    return max(1, round(PRICE_DELTA_TICKS_MIN * ratio ** (1.0 - sensitivity)))
+    return 3.0 ** (1.0 - 2.0 * sensitivity)
 
 
-def _band_thresholds(sensitivity: float) -> tuple[float, float, float]:
-    """Cents thresholds (LOW, MED, HIGH) for the price_delta_band signal.
+def _band_thresholds(sigma: float, lookback: int, sensitivity: float
+                     ) -> tuple[float, float, float]:
+    """Adaptive cents thresholds (LOW, MED, HIGH) for price_delta_band.
 
-    The deadzone is everything below LOW; LOW–MED–HIGH separate the three
-    rising bands either side of zero. Thresholds scale together by a single
-    sensitivity factor (same shape as `_sensitivity_exponent`):
+    Thresholds are multiples of the expected noise floor for an N-tick
+    delta: σ × √N. The Z multipliers are sensitivity-scaled so the slider
+    controls "how many sigmas above noise before I alert."
 
-      s=1.0 (most reactive) → 0.25× → 0.125 / 0.5  / 1.25 ¢
-      s=0.5 (default)       → 1.00× → 0.5   / 2.0  / 5.0  ¢
-      s=0.0 (least reactive)→ 4.00× → 2.0   / 8.0  / 20.0 ¢
-
-    Both deadzone width and ramp spacing scale together so the band shape
-    stays self-similar — the slider just tells the music what counts as
-    "small" vs "huge". Dynamic range (small/med/large within a band) is
-    preserved at every sensitivity setting.
+    Self-calibrating: a quiet political market (σ ≈ 0.03¢) gets tight
+    thresholds; a volatile crypto market (σ ≈ 1¢) gets wide ones. The
+    same sensitivity setting produces appropriate behavior on both.
     """
-    factor = 4.0 ** (1.0 - 2.0 * sensitivity)
+    noise_floor = sigma * math.sqrt(lookback)
+    scale = _band_z_scale(sensitivity)
     return (
-        PRICE_DELTA_BAND_LOW  * factor,
-        PRICE_DELTA_BAND_MED  * factor,
-        PRICE_DELTA_BAND_HIGH * factor,
+        BAND_Z_LOW  * scale * noise_floor,
+        BAND_Z_MED  * scale * noise_floor,
+        BAND_Z_HIGH * scale * noise_floor,
     )
 
 
-def _price_delta_band(cents: float, sensitivity: float) -> int:
+def _price_delta_band(cents: float, sigma: float | None,
+                      lookback: int, sensitivity: float) -> int:
     """Map signed price_delta_cents → integer band in [-3, +3].
 
-    0 = silence (within the sensitivity-scaled deadzone). Sign mirrors the
-    direction of the cents move; magnitude (1/2/3) picks LOW/MED/HIGH.
-    Single source of truth so the audio decision and the visual gauge
+    0 = silence (within the adaptive deadzone, or σ not yet available).
+    Sign mirrors the direction of the cents move; magnitude (1/2/3) picks
+    LOW/MED/HIGH. Single source of truth so the audio and visual gauge
     always agree.
     """
+    if sigma is None:
+        return 0
     abs_c = abs(cents)
-    t1, t2, t3 = _band_thresholds(sensitivity)
+    t1, t2, t3 = _band_thresholds(sigma, lookback, sensitivity)
     if abs_c < t1:
         return 0
     sign = 1 if cents > 0 else -1
@@ -383,25 +382,21 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
 
     # [SENS] log: fires when the user moves the slider. Skips the very
     # first broadcast for a session (no prior value to compare against).
-    # Sensitivity changes shift the lookback target, so reset the [HIST]
-    # milestone to re-fire if/when the new target becomes fully backed.
     if (session._prev_logged_sens is not None
             and session._prev_logged_sens != session.sensitivity):
         old_s = session._prev_logged_sens
         new_s = session.sensitivity
-        old_t = _band_thresholds(old_s)
-        new_t = _band_thresholds(new_s)
-        old_lb = _price_delta_lookback_ticks(old_s)
-        new_lb = _price_delta_lookback_ticks(new_s)
+        cur_sigma = scorer.get_tick_sigma(aid) if aid else None
+        sigma_str = f"σ={cur_sigma:.3f}¢" if cur_sigma else "σ=calibrating"
+        old_z = _band_z_scale(old_s)
+        new_z = _band_z_scale(new_s)
         print(
             f"[SENS:{session.client_id}] "
             f"sens={old_s:.2f} → {new_s:.2f} | "
-            f"bands {old_t[0]:.2f}/{old_t[1]:.2f}/{old_t[2]:.2f}¢ → "
-            f"{new_t[0]:.2f}/{new_t[1]:.2f}/{new_t[2]:.2f}¢ | "
-            f"lookback {old_lb}→{new_lb} ticks ({old_lb*DATA_PUSH_INTERVAL:.0f}s→{new_lb*DATA_PUSH_INTERVAL:.0f}s)",
+            f"z-scale {old_z:.2f}× → {new_z:.2f}× | "
+            f"{sigma_str}",
             flush=True,
         )
-        session._history_milestone_logged = False
     session._prev_logged_sens = session.sensitivity
 
     # ── Rotation: reset per-session state when the market changes ──
@@ -421,25 +416,19 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
         # Reset per-market log state so [BAND] re-emits its first event
         # for the new market and [HIST] can fire its milestone again.
         session._prev_logged_band = 0
-        session._history_milestone_logged = False
 
-        # [PIN] log: one-shot summary of what we've got to work with on
-        # this market — backfill depth vs the lookback the user's current
-        # sensitivity is asking for. Tells you whether the rolling delta
-        # is fully backed yet or still warming up.
+        # [PIN] log: one-shot summary on market pin. σ is per-market, so
+        # it might already be calibrated if another session was watching.
         hist_for_log = scorer.price_history.get(aid)
         hist_len_now = len(hist_for_log) if hist_for_log else 0
-        target_lb = _price_delta_lookback_ticks(session.sensitivity)
-        if session._market_window_cap is not None:
-            target_lb = min(target_lb, session._market_window_cap)
-        effective_lb = min(target_lb, max(0, hist_len_now - 1))
-        coverage = "fully backed" if effective_lb >= target_lb else "history-limited"
+        cur_sigma = scorer.get_tick_sigma(aid)
+        sigma_str = f"σ={cur_sigma:.3f}¢" if cur_sigma else "σ=calibrating"
         print(
             f"[PIN:{session.client_id}] {session.market_slug or '?'} "
             f"asset={aid[:8] if aid else '?'} sens={session.sensitivity:.2f} | "
-            f"history={hist_len_now}/{scorer.MID_HISTORY_MAXLEN} ticks "
+            f"history={hist_len_now} ticks "
             f"({hist_len_now * DATA_PUSH_INTERVAL / 60:.1f}min) | "
-            f"lookback target={target_lb} effective={effective_lb} ({coverage})",
+            f"{sigma_str} lookback={DELTA_LOOKBACK_TICKS}",
             flush=True,
         )
 
@@ -534,14 +523,12 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
     price_move_n = session.pm_v
 
     # ── Price delta (cents): canonical change signal ─────────
-    # Signed delta over a sensitivity-scaled tick window on the scorer's
-    # smoothed mid. Sign = direction, magnitude = cents moved. The
-    # lookback never reaches past the rotation boundary (clamped to
-    # `_ticks_since_rotation - WARMUP_TICKS`), so the median flush and
-    # any backfill/live transition artifacts are excluded.
-    lookback_target = _price_delta_lookback_ticks(session.sensitivity)
+    # Signed delta over a short fixed lookback on the scorer's smoothed
+    # mid. The lookback never reaches past the rotation boundary (clamped
+    # to ticks_since_rotation - WARMUP_TICKS) so median flush and
+    # backfill/live transition artifacts are excluded.
     post_warmup_ticks = max(0, session._ticks_since_rotation - WARMUP_TICKS)
-    lookback = min(lookback_target, post_warmup_ticks)
+    lookback = min(DELTA_LOOKBACK_TICKS, post_warmup_ticks)
     hist = scorer.price_history.get(aid)
     past_mid = None
     if hist and lookback >= 1 and len(hist) > lookback and smoothed_mid is not None:
@@ -550,11 +537,12 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
     else:
         price_delta_cents = 0.0
 
-    # ── price_delta_band: sensitivity-scaled band index ──────
-    # Single source of truth for "which gauge cell / which phrase length".
-    # Tracks read this directly instead of recomputing magBand from cents,
-    # so the visual gauge and the audio always agree on which band lit.
-    price_delta_band = _price_delta_band(price_delta_cents, session.sensitivity)
+    # ── price_delta_band: adaptive statistical band index ────
+    # Thresholds are multiples of the market's measured noise floor (σ).
+    # σ = None during calibration (~30s of live data) → band stays at 0.
+    sigma = scorer.get_tick_sigma(aid)
+    price_delta_band = _price_delta_band(
+        price_delta_cents, sigma, max(lookback, 1), session.sensitivity)
 
     # ── price_moving: per-tick gate ──────────────────────────
     # Boolean. True iff the smoothed mid changed by ≥0.05¢ since the
@@ -612,27 +600,18 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
             notes = {1: 3, 2: 5, 3: 8}[mag]
             direction = "UP" if price_delta_band > 0 else "DOWN"
             decision = f"{notes}-note {direction}"
+        sigma_str = f"σ={sigma:.3f}¢" if sigma else "σ=cal"
+        thresh_str = ""
+        if sigma:
+            t1, t2, t3 = _band_thresholds(sigma, max(lookback, 1), session.sensitivity)
+            thresh_str = f" thresholds={t1:.2f}/{t2:.2f}/{t3:.2f}¢"
         print(
             f"[BAND:{session.client_id}] "
             f"{session._prev_logged_band:+d} → {price_delta_band:+d} ({decision}) | "
-            f"Δ¢={price_delta_cents:+.2f} sens={session.sensitivity:.2f}",
+            f"Δ¢={price_delta_cents:+.2f} {sigma_str}{thresh_str} sens={session.sensitivity:.2f}",
             flush=True,
         )
         session._prev_logged_band = price_delta_band
-
-    # [HIST] log: one-shot per market when the history first satisfies the
-    # full lookback target. Tells you the moment the rolling delta becomes
-    # "real" (no longer clamped by warmup-era short history).
-    if (not session._history_milestone_logged
-            and lookback_target > 0
-            and lookback >= lookback_target):
-        print(
-            f"[HIST:{session.client_id}] lookback fully backed: "
-            f"{lookback}/{lookback_target} ticks "
-            f"({lookback * DATA_PUSH_INTERVAL:.0f}s @ sens={session.sensitivity:.2f})",
-            flush=True,
-        )
-        session._history_milestone_logged = True
 
     # Window metadata for client visualisation: target window for the
     # sensitivity-scaled signals, and how much of that window is actually
@@ -654,6 +633,7 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
         "volatility": round(volatility_n, 4),
         "tone": tone,
         "sensitivity": round(session.sensitivity, 4),
+        "sigma": round(sigma, 4) if sigma else None,
         "window_seconds": sens_window_seconds,
         "window_fill": round(window_fill, 4),
         "warmup_factor": round(w, 4),
