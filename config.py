@@ -60,31 +60,27 @@ WARMUP_TICKS       = 4
 
 # ── Price delta (cents-based change signal) ─────────────
 # price_delta_cents: signed cents over a short fixed lookback on the
-# scorer's smoothed mid.  Direction = sign, magnitude = how much the
-# price moved.  The lookback is short and fixed — adaptive thresholds
-# (see below) decide whether that move is significant for this market.
+# scorer's smoothed mid. Direction = sign, magnitude = how much the
+# price moved.
 DELTA_LOOKBACK_TICKS = 10       # fixed ~30s lookback (10 × 3s cadence)
 
-# ── Adaptive magnitude bands (statistical deadzone) ─────
+# ── Magnitude bands (deadzone + ramps) ──────────────────
 # price_delta_band collapses the signed cents move into one of seven cells:
 #   -3 / -2 / -1 / 0 / +1 / +2 / +3   (negative=down, 0=silence, positive=up)
-#
-# Thresholds are multiples of the market's measured noise floor:
-#   threshold = Z × σ × √N
-# where σ = per-tick stddev of smoothed mid changes (cents), N = lookback
-# ticks, and Z is a sensitivity-scaled multiplier.  This self-calibrates:
-# a quiet political market has low σ so small moves register, a volatile
-# crypto market has high σ so only big moves break through.
-#
-# Z multipliers at default sensitivity (sens=0.5):
-BAND_Z_LOW   = 2.0     # band 1 boundary — ~5% false positive under random walk
-BAND_Z_MED   = 3.5     # band 2 boundary — ~0.05%
-BAND_Z_HIGH  = 6.0     # band 3 boundary — virtually never from noise
-# Sensitivity scales Z by 3^(1-2*sens): ×0.33 at max, ×1 at default, ×3 at min.
+# Three thresholds separate band boundaries (in cents). The deadzone is
+# everything below the LOW threshold; LOW–MED–HIGH are the three rising
+# ramps either side. At sens=0.5 the thresholds are the defaults below;
+# both sides scale together by a sensitivity factor (10× wider at sens=0.0,
+# 10× tighter at sens=1.0) so the band shape stays self-similar — the
+# slider simply tells the music what counts as "small" vs "huge".
+PRICE_DELTA_BAND_LOW   = 0.5    # cents — start of band 1 (deadzone ends here)
+PRICE_DELTA_BAND_MED   = 2.0    # cents — start of band 2
+PRICE_DELTA_BAND_HIGH  = 5.0    # cents — start of band 3
 
 # ── Noise estimation (σ) ────────────────────────────────
 # The scorer maintains a rolling window of tick-to-tick smoothed mid
-# deltas and exposes their stddev as σ.
+# deltas and exposes their stddev as σ. Currently informational only
+# (included in the data payload for tracks/debugging).
 SIGMA_WINDOW       = 60     # samples (~3 min) for stable estimate
 SIGMA_MIN_SAMPLES  = 10     # minimum ticks before trusting σ
 SIGMA_FLOOR_CENTS  = 0.01   # floor when market is perfectly flat (avoids ÷0)

@@ -11,7 +11,6 @@ entirely in the browser via Strudel.
 import asyncio
 import hashlib
 import json
-import math
 import re
 import sys
 from datetime import datetime, timedelta, timezone
@@ -36,8 +35,7 @@ from config import (
     VELOCITY_MAX_MOVE, WARMUP_TICKS,
     PRICE_MOVE_HL_MIN, PRICE_MOVE_HL_MAX, PRICE_MOVE_GAIN,
     DELTA_LOOKBACK_TICKS,
-    BAND_Z_LOW, BAND_Z_MED, BAND_Z_HIGH,
-    SIGMA_FLOOR_CENTS,
+    PRICE_DELTA_BAND_LOW, PRICE_DELTA_BAND_MED, PRICE_DELTA_BAND_HIGH,
 )
 
 
@@ -225,49 +223,40 @@ def _warmup_factor(session: ClientSession) -> float:
     return x * x * (3.0 - 2.0 * x)
 
 
-def _band_z_scale(sensitivity: float) -> float:
-    """Multiplier for the adaptive band z-thresholds.
+def _band_thresholds(sensitivity: float) -> tuple[float, float, float]:
+    """Cents thresholds (LOW, MED, HIGH) for the price_delta_band signal.
 
-    3^(1-2*sens): ×0.33 at max sensitivity (reactive), ×1 at default,
-    ×3 at min sensitivity (conservative — only outlier moves register).
+    The deadzone is everything below LOW; LOW–MED–HIGH separate the three
+    rising bands either side of zero. Thresholds scale together by
+    10^(1 − 2·sensitivity):
+
+      s=1.0 (most reactive) → 0.10× → 0.05 / 0.2  / 0.5  ¢
+      s=0.5 (default)       → 1.00× → 0.5  / 2.0  / 5.0  ¢
+      s=0.0 (least reactive)→ 10.0× → 5.0  / 20.0 / 50.0 ¢
+
+    Default sensitivity is unchanged (any base ^ 0 = 1). The wider base
+    (10 vs the old 4) gives the slider enough range that min-sensitivity
+    actually silences the melody on typical markets — a 5¢ deadzone over
+    a 30s lookback requires a genuine move, not drift.
     """
-    return 3.0 ** (1.0 - 2.0 * sensitivity)
-
-
-def _band_thresholds(sigma: float, lookback: int, sensitivity: float
-                     ) -> tuple[float, float, float]:
-    """Adaptive cents thresholds (LOW, MED, HIGH) for price_delta_band.
-
-    Thresholds are multiples of the expected noise floor for an N-tick
-    delta: σ × √N. The Z multipliers are sensitivity-scaled so the slider
-    controls "how many sigmas above noise before I alert."
-
-    Self-calibrating: a quiet political market (σ ≈ 0.03¢) gets tight
-    thresholds; a volatile crypto market (σ ≈ 1¢) gets wide ones. The
-    same sensitivity setting produces appropriate behavior on both.
-    """
-    noise_floor = sigma * math.sqrt(lookback)
-    scale = _band_z_scale(sensitivity)
+    factor = 10.0 ** (1.0 - 2.0 * sensitivity)
     return (
-        BAND_Z_LOW  * scale * noise_floor,
-        BAND_Z_MED  * scale * noise_floor,
-        BAND_Z_HIGH * scale * noise_floor,
+        PRICE_DELTA_BAND_LOW  * factor,
+        PRICE_DELTA_BAND_MED  * factor,
+        PRICE_DELTA_BAND_HIGH * factor,
     )
 
 
-def _price_delta_band(cents: float, sigma: float | None,
-                      lookback: int, sensitivity: float) -> int:
+def _price_delta_band(cents: float, sensitivity: float) -> int:
     """Map signed price_delta_cents → integer band in [-3, +3].
 
-    0 = silence (within the adaptive deadzone, or σ not yet available).
-    Sign mirrors the direction of the cents move; magnitude (1/2/3) picks
-    LOW/MED/HIGH. Single source of truth so the audio and visual gauge
+    0 = silence (within the sensitivity-scaled deadzone). Sign mirrors the
+    direction of the cents move; magnitude (1/2/3) picks LOW/MED/HIGH.
+    Single source of truth so the audio decision and the visual gauge
     always agree.
     """
-    if sigma is None:
-        return 0
     abs_c = abs(cents)
-    t1, t2, t3 = _band_thresholds(sigma, lookback, sensitivity)
+    t1, t2, t3 = _band_thresholds(sensitivity)
     if abs_c < t1:
         return 0
     sign = 1 if cents > 0 else -1
@@ -386,15 +375,13 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
             and session._prev_logged_sens != session.sensitivity):
         old_s = session._prev_logged_sens
         new_s = session.sensitivity
-        cur_sigma = scorer.get_tick_sigma(aid) if aid else None
-        sigma_str = f"σ={cur_sigma:.3f}¢" if cur_sigma else "σ=calibrating"
-        old_z = _band_z_scale(old_s)
-        new_z = _band_z_scale(new_s)
+        old_t = _band_thresholds(old_s)
+        new_t = _band_thresholds(new_s)
         print(
             f"[SENS:{session.client_id}] "
             f"sens={old_s:.2f} → {new_s:.2f} | "
-            f"z-scale {old_z:.2f}× → {new_z:.2f}× | "
-            f"{sigma_str}",
+            f"bands {old_t[0]:.2f}/{old_t[1]:.2f}/{old_t[2]:.2f}¢ → "
+            f"{new_t[0]:.2f}/{new_t[1]:.2f}/{new_t[2]:.2f}¢",
             flush=True,
         )
     session._prev_logged_sens = session.sensitivity
@@ -417,18 +404,16 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
         # for the new market and [HIST] can fire its milestone again.
         session._prev_logged_band = 0
 
-        # [PIN] log: one-shot summary on market pin. σ is per-market, so
-        # it might already be calibrated if another session was watching.
+        # [PIN] log: one-shot summary on market pin.
         hist_for_log = scorer.price_history.get(aid)
         hist_len_now = len(hist_for_log) if hist_for_log else 0
-        cur_sigma = scorer.get_tick_sigma(aid)
-        sigma_str = f"σ={cur_sigma:.3f}¢" if cur_sigma else "σ=calibrating"
+        t = _band_thresholds(session.sensitivity)
         print(
             f"[PIN:{session.client_id}] {session.market_slug or '?'} "
             f"asset={aid[:8] if aid else '?'} sens={session.sensitivity:.2f} | "
             f"history={hist_len_now} ticks "
             f"({hist_len_now * DATA_PUSH_INTERVAL / 60:.1f}min) | "
-            f"{sigma_str} lookback={DELTA_LOOKBACK_TICKS}",
+            f"bands {t[0]:.2f}/{t[1]:.2f}/{t[2]:.2f}¢ lookback={DELTA_LOOKBACK_TICKS}",
             flush=True,
         )
 
@@ -537,12 +522,10 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
     else:
         price_delta_cents = 0.0
 
-    # ── price_delta_band: adaptive statistical band index ────
-    # Thresholds are multiples of the market's measured noise floor (σ).
-    # σ = None during calibration (~30s of live data) → band stays at 0.
+    # ── price_delta_band: sensitivity-scaled band index ──────
+    # Single source of truth for "which gauge cell / which phrase length".
     sigma = scorer.get_tick_sigma(aid)
-    price_delta_band = _price_delta_band(
-        price_delta_cents, sigma, max(lookback, 1), session.sensitivity)
+    price_delta_band = _price_delta_band(price_delta_cents, session.sensitivity)
 
     # ── price_moving: per-tick gate ──────────────────────────
     # Boolean. True iff the smoothed mid changed by ≥0.05¢ since the
@@ -600,15 +583,10 @@ def _compute_market_data(session: ClientSession, scorer: MarketScorer):
             notes = {1: 3, 2: 5, 3: 8}[mag]
             direction = "UP" if price_delta_band > 0 else "DOWN"
             decision = f"{notes}-note {direction}"
-        sigma_str = f"σ={sigma:.3f}¢" if sigma else "σ=cal"
-        thresh_str = ""
-        if sigma:
-            t1, t2, t3 = _band_thresholds(sigma, max(lookback, 1), session.sensitivity)
-            thresh_str = f" thresholds={t1:.2f}/{t2:.2f}/{t3:.2f}¢"
         print(
             f"[BAND:{session.client_id}] "
             f"{session._prev_logged_band:+d} → {price_delta_band:+d} ({decision}) | "
-            f"Δ¢={price_delta_cents:+.2f} {sigma_str}{thresh_str} sens={session.sensitivity:.2f}",
+            f"Δ¢={price_delta_cents:+.2f} sens={session.sensitivity:.2f}",
             flush=True,
         )
         session._prev_logged_band = price_delta_band
